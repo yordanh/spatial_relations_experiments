@@ -101,4 +101,13 @@ venv.bak/
 /site
 
 # mypy
-.mypy_cache/
+.mypy_cache
+
+# ignore any rosbags or numpy arrays
+*.bag
+*.npz
+
+# ignore any images or save models
+*.png
+*.jpg
+*.model
