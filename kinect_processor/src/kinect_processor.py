@@ -236,7 +236,12 @@ def normalise_xyz(xyz_points, bounds={}):
     xyz_points_norm[...,1] = (xyz_points[...,1] - bounds['y'][0]) / (bounds['y'][1] - bounds['y'][0])
     xyz_points_norm[...,2] = (xyz_points[...,2] - bounds['z'][0]) / (bounds['z'][1] - bounds['z'][0])
 
+    mask = np.logical_and((xyz_points_norm <= 1).all(axis=2), (xyz_points_norm >= 0).all(axis=2)).astype(np.uint8)
+    mask = np.tile(mask.reshape(xyz_points_norm.shape[0], xyz_points_norm.shape[1], 1), (1, 1, 3))
+    xyz_points_norm = xyz_points_norm * mask
+
     return xyz_points_norm
+
 
 def plot_xyz(xyz_points):
 
@@ -301,16 +306,18 @@ def report_xyz_stats(xyz_points):
 
 class Kinect_Data_Processor(object):
 
-    def __init__(self, debug=False):
+    def __init__(self, debug=False, parameters=None):
         self.debug = debug
         self.output = []
         self.counter = 0
+        self.parameters = parameters
         self.bounds = {'x':[0.1, 1.3], 'y':[-0.5, 0.5], 'z':[0.0, 1.0]}
 
 
     def callback(self, data):
 
         self.counter += 1
+        print(self.counter)
 
         cloud = pointcloud2_to_array(data, split_rgb=True, remove_padding=True)
         xyz, bgr = get_xyzbgr_points(cloud, remove_nans=False)
@@ -318,42 +325,111 @@ class Kinect_Data_Processor(object):
 
         # max height - 424
         # max width  - 512
-        height = 424
-        width = 512
+        height = 540
+        width = 960
         offset = 0
-        margin = 50
+        margin_h = 50
+        margin_w = 100
         # half of the crop's size; we assume a square crop
-        crop_size = 14
-        xyz = xyz[offset + margin : offset + height - margin, offset + margin : offset + width - margin, :]
-        bgr = bgr[offset + margin : offset + height - margin, offset + margin : offset + width - margin, :]
+        crop_size = 25
 
-        height -= 2*margin
-        width -= 2*margin
+        image_bbox = [offset + margin_h, offset + height - margin_h, offset + margin_w, offset + width - margin_w]
+
+        xyz = xyz[image_bbox[0] : image_bbox[1], image_bbox[2] : image_bbox[3], :]
+        bgr = bgr[image_bbox[0] : image_bbox[1], image_bbox[2] : image_bbox[3], :]
+
+        height -= 2*margin_h
+        width -= 2*margin_w
 
         # filter only the 'non-white parts of the point cloud'
-        mask = np.any(np.logical_and(bgr < 50, bgr > 0), axis=2).astype(np.uint8)
-        kernel = np.ones((10, 10), np.uint8)
+        # mask = np.any(np.logical_and(bgr < 50, bgr > 0), axis=2).astype(np.uint8)
+
+        image = bgr.copy()
+        bg_patch_size = 20
+        image_size = image.shape[:-1]
+        number_of_tiles = (int(image_size[0] / bg_patch_size), int(image_size[1] / bg_patch_size), 1)
+        bg_threshold = 50
+        
+        backgrounds = []
+        masks = []
+        
+        # take patches for bg from the 4 courners
+        backgrounds.append(np.tile(image[0 : bg_patch_size, \
+                                   0 : bg_patch_size, :], \
+                                   number_of_tiles))
+        backgrounds.append(np.tile(image[image_size[0] - bg_patch_size : image_size[0], \
+                                   0 : bg_patch_size, :], \
+                                   number_of_tiles))
+        backgrounds.append(np.tile(image[0 : bg_patch_size, \
+                                   image_size[1] - bg_patch_size : image_size[1], :], \
+                                   number_of_tiles))
+        backgrounds.append(np.tile(image[image_size[0] - bg_patch_size : image_size[0], \
+                                   image_size[1] - bg_patch_size : image_size[1], :], \
+                                   number_of_tiles))
+
+        # for each background sample generate a binary mask; after that combine them all
+        for bg in backgrounds:
+            mask = abs(image.astype(np.int32) - bg.astype(np.int32))
+            mask =  (mask > bg_threshold).astype(np.int32)
+            masks.append(mask)
+        final_mask = np.ones((image_size[0], image_size[1], 3))
+        for mask in masks:
+            final_mask *= mask
+
+        # for each pixel, if any of the channel have value = 1, the whole pixels is white in the mask
+        final_mask = np.array(list(map(lambda row : list(map(lambda pixel : np.array([1,1,1]) if pixel[0] == 1 or pixel[1] == 1 or pixel[2] == 1 else pixel, row)), final_mask)), dtype=np.uint8)
+
+        final_mask = final_mask[:,:,0]
+        mask = self.fill_holes_get_max_cnt(final_mask)
+
+        mask_extended = np.tile(mask[:,:,np.newaxis], (1,1,3))
+        bgr = bgr * mask_extended
+
+
+        # filter the non-white parts and the non-carpet parts of the pointcloud
+        mask = np.logical_and(np.any(bgr < 150, axis=2), np.any(bgr > 0, axis=2)).astype(np.uint8)
+        # mask = np.any(bgr < 170, axis=2).astype(np.uint8)
+        # cv2.imshow("Pure Mask", mask * 255)
+
+        kernel = np.ones((5, 5), np.uint8)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        mask = cv2.dilate(mask, kernel, iterations=1)
+
+        # cv2.imshow("Smoothed", mask * 255)
+        # cv2.imshow("bgr", bgr * np.tile(mask[:,:,np.newaxis], (1,1,3)))
+        # cv2.waitKey(1)
 
         mask_copy = copy.deepcopy(mask)
         contours,hier = cv2.findContours(mask_copy, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
         areas = [cv2.contourArea(cnt) for cnt in contours]
         contours = [x for _,x in sorted(zip(areas,contours), reverse=True)]
         
+        # areas = [x for x,_ in sorted(zip(areas,contours), reverse=True)]
+        # print(len(contours))
+        # print(areas)
+        
         # extract the color and spatial information for each object
         new_mask = np.zeros((height, width))
         new_entry = [[],[]]
-        for cnt in contours[:2]:
+        for cnt in contours[:self.parameters['no_objects']]:
             M = cv2.moments(cnt)
             cX = int(M["m10"] / M["m00"])
             cY = int(M["m01"] / M["m00"])
 
-            xyz_crop = xyz[cY - crop_size : cY + crop_size, cX - crop_size : cX + crop_size, :]
+            # makes sure that we are not trying to pass a negative or bigger than allowed index 
+            # when slicing the xyz/bgr images
+            bbox = [cY - crop_size, cY + crop_size, cX - crop_size, cX + crop_size]
+            bbox = list(map(lambda x : 0 if x < 0 else x, bbox))
+
+            maxes = np.repeat(image_bbox[1::2], 2)
+            bbox = list(map(lambda (x, y) : y if x > y else x, zip(bbox, maxes)))
+
+            xyz_crop = xyz[bbox[0] : bbox[1], bbox[2] : bbox[3], :]
             xyz_crop_trans = transform_xyz(xyz_crop, target_frame="base_link", height=crop_size * 2, width=crop_size * 2)
             xyz_crop_trans_norm = normalise_xyz(xyz_crop_trans, bounds=self.bounds)
-            bgr_crop = bgr[cY - crop_size : cY + crop_size, cX - crop_size : cX + crop_size, :]
+            bgr_crop = bgr[bbox[0] : bbox[1], bbox[2] : bbox[3], :]
 
-            assert ((xyz_crop_trans_norm <= 1).any() and (xyz_crop_trans_norm >= 0).any()),\
+            assert ((xyz_crop_trans_norm <= 1).all() and (xyz_crop_trans_norm >= 0).all()),\
             "The data can not be normalised in the range [0,1] - Potentially bad bounds"
 
             new_entry[0].append(xyz_crop_trans_norm)
@@ -361,7 +437,7 @@ class Kinect_Data_Processor(object):
 
             if self.debug:
                 # build up a mask with regions of interest
-                new_mask[cY - crop_size : cY + crop_size, cX - crop_size : cX + crop_size] = 1
+                new_mask[bbox[0] : bbox[1], bbox[2] : bbox[3]] = 1
         
         self.output.append(new_entry)
 
@@ -375,8 +451,8 @@ class Kinect_Data_Processor(object):
             bgr_fil = (bgr * mask).astype(np.uint8)
             xyz_fil_trans_norm = (xyz_trans_norm * mask)
 
-            # plot_xyz(xyz_fil_transformed_norm)
-            # bad_mask_tmp = (xyz_fil_transformed_norm > 1.1).any(axis=2).astype(np.uint8)
+            # plot_xyz(xyz_fil_trans_norm)
+            # bad_mask_tmp = (xyz_fil_trans_norm > 1.1).any(axis=2).astype(np.uint8)
             # bad_mask = np.tile(bad_mask_tmp.reshape(height, width, 1), (1,1,3))
 
             cv2.imshow("Mask", (mask * 255).astype(np.uint8))
@@ -385,18 +461,33 @@ class Kinect_Data_Processor(object):
             cv2.imshow("BGR Filtered", bgr_fil)
             cv2.waitKey(10)
 
+    def fill_holes_get_max_cnt(self, mask):
+        """Given a binary mask, fills in any holes in the contours, selects the contour with max area
+        and returns a mask with only it drawn + its bounding box
+        """
+        canvas = np.zeros(mask.shape, dtype=np.uint8)
+        cnts, hier = cv2.findContours(mask.astype(np.uint8),cv2.RETR_CCOMP,cv2.CHAIN_APPROX_SIMPLE)
+        areas = [cv2.contourArea(cnt) for cnt in cnts]
+
+        (cnt, area) = sorted(zip(cnts, areas), key=lambda x: x[1], reverse=True)[0]
+        cv2.drawContours(canvas,[cnt],0,1,-1)
+
+
+        return canvas.astype(np.uint8)
+
 class Data_Annotator(object):
 
-    def __init__(self, parameters):
+    def __init__(self, parameters=None):
 
-        # used when classifiying patches wrt color labels
+        # hue ranges - [0,180] - used when classifiying patches wrt color labels
         self.hues = {}
         self.hues['blue'] = [90, 130]
-        self.hues['yellow'] = [5, 35]
-        self.hues['green'] = [35, 65]
+        self.hues['yellow'] = [5, 30]
+        self.hues['green'] = [30, 65]
         self.hues['red'] = [160, 180]
+        self.hues['purple'] = [130, 160]
 
-        # uses the information from the instructions to construct the conceptial groups
+        # uses the information from the instructions to construct the conceptual groups
         self.data = {}
             
         for i in range(len([x for x in parameters if 'instruction ' in x])):
@@ -412,11 +503,21 @@ class Data_Annotator(object):
 
     # checks whether a given color patch can be 
     def is_color(self, bgr, color):
+
+        # mask out any white background in order not to skew the average hue values
+        mask = np.any(bgr < 170, axis=2).astype(np.uint8)
+        mask = np.tile(mask.reshape(50, 50, 1), (1, 1, 3))
+        bgr = bgr * mask
+
+        # cv2.imshow("masked", bgr)
+        # cv2.waitKey(0)
+
         hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV) 
         lower = np.array([self.hues[color][0],50,50]) 
         upper = np.array([self.hues[color][1], 255, 255]) 
 
-        mean_hsv = np.mean(hsv, axis=(0,1))
+        # divide only by the number of non-masked pixels
+        mean_hsv = np.sum(hsv, axis=(0,1)) / np.sum(hsv[...,0] != 0)
         # print(color, mean_hsv)
 
         return all(mean_hsv >= lower) and all(mean_hsv <= upper)
@@ -435,25 +536,32 @@ class Data_Annotator(object):
 
             for array_key in self.data:
 
-                # add the crops to the corresponding array, given the instructions
-                object_labels = array_key.split('_')[2:]
+                # we expect the last two symbols in the array name to be colors
+                color_labels = array_key.split('_')[-2:]
                 
+                # print(color_labels)
+                # print(bgr_crops.shape)
+                # cv2.imshow("0", bgr_crops[0].astype(np.uint8))
+                # cv2.imshow("1", bgr_crops[1].astype(np.uint8))
+                # cv2.imshow("2", bgr_crops[2].astype(np.uint8))
+                # cv2.imshow("3", bgr_crops[3].astype(np.uint8))
+                # cv2.waitKey(0)
+
                 for bgr_index, bgr_crop in enumerate(bgr_crops):
 
-                    for index, object_label in enumerate(object_labels):
-                        if self.is_color(bgr_crop.astype(np.uint8), object_label):
-                            # print(object_label)
+                    for index, color_label in enumerate(color_labels):
+                        if self.is_color(bgr_crop.astype(np.uint8), color_label):
                             self.data[array_key][index].append(xyz_crops[bgr_index])
                             bgr_out[index] = bgr_crop.astype(np.uint8)
+
                             break
-        
+
                 if debug:
-                    print(bgr_out[0])
+                    print(array_key)
                     cv2.imshow("first", bgr_out[0])
-                    print(self.data[2][-1])
-                    print(self.data[3][-1])
+                    cv2.imshow("second", bgr_out[1])
                     print('\n')
-                    cv2.waitKey(0)
+                    cv2.waitKey(1000)
 
             # keys = self.data.keys()
             # a = self.data[keys[0]][0][0]
@@ -487,10 +595,10 @@ def main_loop():
     # run simultaneously.
     rospy.init_node('kinect_processor', anonymous=True)
 
-    k_processor = Kinect_Data_Processor(debug=True)
-    rospy.Subscriber("/kinect2/sd/points", PointCloud2, k_processor.callback)
-
     parameters = rospy.get_param("/kinect_processor")
+
+    k_processor = Kinect_Data_Processor(debug=True, parameters=parameters)
+    rospy.Subscriber("/kinect2/qhd/points", PointCloud2, k_processor.callback)
 
     # spin() simply keeps python from exiting until this node is stopped
     rospy.spin()
@@ -499,10 +607,11 @@ def main_loop():
     k_processor.output = np.array(k_processor.output)
     print(k_processor.output.shape)
 
-    annotator = Data_Annotator(parameters)
-    annotator.annotate(k_processor.output)
-    annotator.save_to_npz()
-    print("NPZ saved")
+    # annotator = Data_Annotator(parameters=parameters)
+    # annotator.annotate(k_processor.output)
+
+    # annotator.save_to_npz()
+    # print("NPZ saved")
 
 if __name__ == '__main__':
 
