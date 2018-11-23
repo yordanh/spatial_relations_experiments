@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 """
 title           :kinect_processor.py
-description     :Processes raw sensory data captured from a Kinect 2 under the ROS framework. Given
-                :user instructions, saves crops from the sensory feed in a numpy array under 
-                :learning_experiments/data/.
+description     :Processes raw sensory data captured from a Kinect 2 under the ROS framework. 
+                :saves crops from the sensory feed in a numpy array under ../rosbag_dump.
 author          :Yordan Hristov <yordan.hristov@ed.ac.uk
 date            :10/2018
 python_version  :2.7.6
@@ -313,6 +312,14 @@ class Kinect_Data_Processor(object):
         self.parameters = parameters
         self.bounds = {'x':[0.1, 1.3], 'y':[-0.5, 0.5], 'z':[0.0, 1.0]}
 
+        # hue ranges - [0,180] - used when classifiying patches wrt color labels
+        self.hues = {}
+        self.hues['blue'] = [90, 130]
+        self.hues['yellow'] = [5, 30]
+        self.hues['green'] = [30, 65]
+        self.hues['red'] = [170, 180]
+        self.hues['purple'] = [130, 160]
+
 
     def callback(self, data):
 
@@ -331,7 +338,7 @@ class Kinect_Data_Processor(object):
         margin_h = 50
         margin_w = 100
         # half of the crop's size; we assume a square crop
-        crop_size = 25
+        crop_size = 60
 
         image_bbox = [offset + margin_h, offset + height - margin_h, offset + margin_w, offset + width - margin_w]
 
@@ -341,8 +348,7 @@ class Kinect_Data_Processor(object):
         height -= 2*margin_h
         width -= 2*margin_w
 
-        # filter only the 'non-white parts of the point cloud'
-        # mask = np.any(np.logical_and(bgr < 50, bgr > 0), axis=2).astype(np.uint8)
+        # filter only the carpet parts of the point cloud'
 
         image = bgr.copy()
         bg_patch_size = 20
@@ -386,9 +392,9 @@ class Kinect_Data_Processor(object):
         bgr = bgr * mask_extended
 
 
-        # filter the non-white parts and the non-carpet parts of the pointcloud
+
+        # filter the white parts of the pointcloud
         mask = np.logical_and(np.any(bgr < 150, axis=2), np.any(bgr > 0, axis=2)).astype(np.uint8)
-        # mask = np.any(bgr < 170, axis=2).astype(np.uint8)
         # cv2.imshow("Pure Mask", mask * 255)
 
         kernel = np.ones((5, 5), np.uint8)
@@ -400,13 +406,15 @@ class Kinect_Data_Processor(object):
         # cv2.waitKey(1)
 
         mask_copy = copy.deepcopy(mask)
-        contours,hier = cv2.findContours(mask_copy, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+        contours, hier = cv2.findContours(mask_copy, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
         areas = [cv2.contourArea(cnt) for cnt in contours]
         contours = [x for _,x in sorted(zip(areas,contours), reverse=True)]
         
         # areas = [x for x,_ in sorted(zip(areas,contours), reverse=True)]
         # print(len(contours))
         # print(areas)
+
+        # return(0)
         
         # extract the color and spatial information for each object
         new_mask = np.zeros((height, width))
@@ -429,37 +437,60 @@ class Kinect_Data_Processor(object):
             xyz_crop_trans_norm = normalise_xyz(xyz_crop_trans, bounds=self.bounds)
             bgr_crop = bgr[bbox[0] : bbox[1], bbox[2] : bbox[3], :]
 
-            assert ((xyz_crop_trans_norm <= 1).all() and (xyz_crop_trans_norm >= 0).all()),\
-            "The data can not be normalised in the range [0,1] - Potentially bad bounds"
+            result = {}
 
-            new_entry[0].append(xyz_crop_trans_norm)
-            new_entry[1].append(bgr_crop)
+            # filter out the table artefacts
+            xyz_crop_trans_norm[(bgr_crop > 170).all(axis=2)] = 0
+            bgr_crop[(bgr_crop > 170).all(axis=2)] = 0
 
-            if self.debug:
-                # build up a mask with regions of interest
-                new_mask[bbox[0] : bbox[1], bbox[2] : bbox[3]] = 1
+            for hue in self.hues:
+                hsv_crop = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
+                xyz = xyz_crop_trans_norm[np.logical_and(hsv_crop[...,0] >= self.hues[hue][0], hsv_crop[...,0] <= self.hues[hue][1])]
+
+                if len(xyz) < 200:
+                    continue
+
+                # result[hue] = xyz_crop_trans_norm[np.logical_and(hsv_crop[...,0] >= hues[hue][0], hsv_crop[...,0] <= hues[hue][1])]
+                # hsv_crop[np.logical_or(hsv_crop[...,0] < hues[hue][0], hsv_crop[...,0] > hues[hue][1])] = 0
+
+                # cv2.imshow("crop", cv2.cvtColor(hsv_crop, cv2.COLOR_HSV2BGR))
+                # cv2.waitKey(0)
+
+            # np.savez("/home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/cloud.npz", **result)
+            # exit()
+
+                assert ((xyz <= 1).all() and (xyz >= 0).all()),\
+                "The data can not be normalised in the range [0,1] - Potentially bad bounds"
+
+                new_entry[0].append(xyz)
+                new_entry[1].append(hue)
+
+                # if self.debug:
+                #     # build up a mask with regions of interest
+                #     new_mask[bbox[0] : bbox[1], bbox[2] : bbox[3]] = 1
         
         self.output.append(new_entry)
 
-        if self.debug:
-            xyz_trans = transform_xyz(xyz, target_frame="base_link", height=height, width=width)
-            xyz_trans_norm = normalise_xyz(xyz_trans, bounds=self.bounds)
+        # if self.debug:
+        #     xyz_trans = transform_xyz(xyz, target_frame="base_link", height=height, width=width)
+        #     xyz_trans_norm = normalise_xyz(xyz_trans, bounds=self.bounds)
 
-            # extend the mask to have 3 channels - for RGB/XYZ - and filter the images
-            mask = new_mask
-            mask = np.tile(mask.reshape(height, width, 1), (1, 1, 3))
-            bgr_fil = (bgr * mask).astype(np.uint8)
-            xyz_fil_trans_norm = (xyz_trans_norm * mask)
+        #     # extend the mask to have 3 channels - for RGB/XYZ - and filter the images
+        #     mask = new_mask
+        #     mask = np.tile(mask.reshape(height, width, 1), (1, 1, 3))
+        #     bgr_fil = (bgr * mask).astype(np.uint8)
+        #     xyz_fil_trans_norm = (xyz_trans_norm * mask)
 
-            # plot_xyz(xyz_fil_trans_norm)
-            # bad_mask_tmp = (xyz_fil_trans_norm > 1.1).any(axis=2).astype(np.uint8)
-            # bad_mask = np.tile(bad_mask_tmp.reshape(height, width, 1), (1,1,3))
+        #     # print(xyz_crop_trans_norm)
+        #     plot_xyz(xyz_crop_trans_norm)
+        #     # bad_mask_tmp = (xyz_fil_trans_norm > 1.1).any(axis=2).astype(np.uint8)
+        #     # bad_mask = np.tile(bad_mask_tmp.reshape(height, width, 1), (1,1,3))
 
-            cv2.imshow("Mask", (mask * 255).astype(np.uint8))
-            # cv2.imshow("Bad Mask", (bad_mask * 255).astype(np.uint8))
-            cv2.imshow("BGR", bgr)
-            cv2.imshow("BGR Filtered", bgr_fil)
-            cv2.waitKey(10)
+        #     cv2.imshow("Mask", (mask * 255).astype(np.uint8))
+        #     # cv2.imshow("Bad Mask", (bad_mask * 255).astype(np.uint8))
+        #     cv2.imshow("BGR", bgr)
+        #     cv2.imshow("BGR Filtered", bgr_fil)
+        #     cv2.waitKey(10)
 
     def fill_holes_get_max_cnt(self, mask):
         """Given a binary mask, fills in any holes in the contours, selects the contour with max area
@@ -472,121 +503,15 @@ class Kinect_Data_Processor(object):
         (cnt, area) = sorted(zip(cnts, areas), key=lambda x: x[1], reverse=True)[0]
         cv2.drawContours(canvas,[cnt],0,1,-1)
 
-
         return canvas.astype(np.uint8)
 
-class Data_Annotator(object):
 
-    def __init__(self, parameters=None):
+    def save_to_npz(self, output_folder):
 
-        # hue ranges - [0,180] - used when classifiying patches wrt color labels
-        self.hues = {}
-        self.hues['blue'] = [90, 130]
-        self.hues['yellow'] = [5, 30]
-        self.hues['green'] = [30, 65]
-        self.hues['red'] = [160, 180]
-        self.hues['purple'] = [130, 160]
-
-        # uses the information from the instructions to construct the conceptual groups
-        self.data = {}
-            
-        for i in range(len([x for x in parameters if 'instruction ' in x])):
-            instruction = parameters['instruction ' + str(i)]
-            labels = instruction.split()[1].split('/')
-
-            array_key = '_'.join(labels) + '_' + '_'.join(instruction.split()[:1] + instruction.split()[2:])
-            # contains two arrays for the inputs of the two network branches
-            self.data[array_key] = [[],[]]
-
-        print(self.data)
+        np.savez(os.path.join(output_folder, "rosbag_dump.npz"), self.output)
 
 
-    # checks whether a given color patch can be 
-    def is_color(self, bgr, color):
-
-        # mask out any white background in order not to skew the average hue values
-        mask = np.any(bgr < 170, axis=2).astype(np.uint8)
-        mask = np.tile(mask.reshape(50, 50, 1), (1, 1, 3))
-        bgr = bgr * mask
-
-        # cv2.imshow("masked", bgr)
-        # cv2.waitKey(0)
-
-        hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV) 
-        lower = np.array([self.hues[color][0],50,50]) 
-        upper = np.array([self.hues[color][1], 255, 255]) 
-
-        # divide only by the number of non-masked pixels
-        mean_hsv = np.sum(hsv, axis=(0,1)) / np.sum(hsv[...,0] != 0)
-        # print(color, mean_hsv)
-
-        return all(mean_hsv >= lower) and all(mean_hsv <= upper)
-
-
-    # given the linguistic instruction, decide which crop goes to which branch of the net and what
-    # spatial label is the tuple given
-    def annotate(self, data, debug=False):
-        
-        no_input_pairs = len(data)
-
-        for entry in data:
-            xyz_crops = entry[0]
-            bgr_crops = entry[1]
-            bgr_out = [[],[]]
-
-            for array_key in self.data:
-
-                # we expect the last two symbols in the array name to be colors
-                color_labels = array_key.split('_')[-2:]
-                
-                # print(color_labels)
-                # print(bgr_crops.shape)
-                # cv2.imshow("0", bgr_crops[0].astype(np.uint8))
-                # cv2.imshow("1", bgr_crops[1].astype(np.uint8))
-                # cv2.imshow("2", bgr_crops[2].astype(np.uint8))
-                # cv2.imshow("3", bgr_crops[3].astype(np.uint8))
-                # cv2.waitKey(0)
-
-                for bgr_index, bgr_crop in enumerate(bgr_crops):
-
-                    for index, color_label in enumerate(color_labels):
-                        if self.is_color(bgr_crop.astype(np.uint8), color_label):
-                            self.data[array_key][index].append(xyz_crops[bgr_index])
-                            bgr_out[index] = bgr_crop.astype(np.uint8)
-
-                            break
-
-                if debug:
-                    print(array_key)
-                    cv2.imshow("first", bgr_out[0])
-                    cv2.imshow("second", bgr_out[1])
-                    print('\n')
-                    cv2.waitKey(1000)
-
-            # keys = self.data.keys()
-            # a = self.data[keys[0]][0][0]
-            # b = self.data[keys[1]][0][0]
-            # print(a == b)
-            # exit()
-
-        no_output_pairs = 0
-        for key in self.data.keys():
-            no_output_pairs += len(self.data[key][0])
-            no_output_pairs += len(self.data[key][1])
-
-        no_output_pairs = no_output_pairs / float(len(self.data.keys()))
-
-        assert (no_input_pairs * 2 == no_output_pairs),\
-        "Input pairs - {0} | Output pairs - {1}; Potential bad color ranges".format(no_input_pairs * 2, no_output_pairs)
-
-
-    def save_to_npz(self):
-
-        for key in self.data.keys():
-            output = {"branch_0":self.data[key][0], "branch_1":self.data[key][1]}
-            np.savez(os.path.join("/home/yordan/pr2_ws/src/spatial_relations_experiments/learning_experiments/data/train/", key + ".npz"), **output)
-
-def main_loop():
+if __name__ == '__main__':
 
     # In ROS, nodes are uniquely named. If two nodes with the same
     # node are launched, the previous one is kicked off. The
@@ -605,27 +530,5 @@ def main_loop():
 
     print("Final count: "+ str(k_processor.counter))
     k_processor.output = np.array(k_processor.output)
-    print(k_processor.output.shape)
-
-    # annotator = Data_Annotator(parameters=parameters)
-    # annotator.annotate(k_processor.output)
-
-    # annotator.save_to_npz()
-    # print("NPZ saved")
-
-if __name__ == '__main__':
-
-    main_loop()
-
-
-    # rospy.init_node('kinect_listener')
-    # tf_listener = tf.TransformListener()
-    # transformer = tf.Transformer(True, rospy.Duration(10.0))
-    # tf_listener.waitForTransform('/base_link','/head_mount_kinect2_ir_optical_frame',rospy.Time(), rospy.Duration(4.0))
-
-    # rate = rospy.Rate(10.0)
-    # while not rospy.is_shutdown():
-    #     tf_listener.waitForTransform('/base_link','/head_mount_kinect2_ir_optical_frame',rospy.Time(), rospy.Duration(4.0))
-    #     position, quaternion = tf_listener.lookupTransform("/base_link", "/head_mount_kinect2_ir_optical_frame", rospy.Duration(0))
-    #     print position, quaternion
-    #     rate.sleep()
+    k_processor.save_to_npz("/home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/rosbag_dump")
+    print("NPZ saved")
