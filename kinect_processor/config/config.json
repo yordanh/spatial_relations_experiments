@@ -1,0 +1,51 @@
+{
+	"groups" : {
+		"0" : ["above", "under"],
+		"1" : ["left", "right"],
+		"2" : ["in", "out"],
+		"3" : ["on", "below"],
+		"4"	: ["front", "behind"]	
+	},
+	"instructions" : {
+		"0" : "red in purple",
+		"1" : "green in purple",
+		"2" : "yellow in purple",
+		"3" : "orange in blue",
+
+		"4" : "orange out purple",
+		"5" : "red out blue",
+		"6" : "yellow out blue",
+		"7" : "green out blue",
+
+
+
+		"8" : "red on green",
+		"9" : "red on yellow",
+
+		"10" : "yellow below red",
+		"11" : "green below red",
+
+
+
+		"12" : "red left orange",
+		"13" : "red left blue",
+		"14" : "purple left orange",
+		"15" : "purple left blue",
+		"16" : "yellow left orange",
+		"17" : "yellow left blue",
+		"18" : "green left orange",
+		"19" : "green left blue",
+
+		"20" : "orange right purple",
+		"21" : "blue right purple",
+		"22" : "orange right red",
+		"23" : "blue right red",
+		"24" : "orange right yellow",
+		"25" : "blue right yellow",
+		"26" : "orange right green",
+		"27" : "blue right green",
+
+		"28" : "yellow right green",
+		"29" : "green left yellow"
+	}
+}

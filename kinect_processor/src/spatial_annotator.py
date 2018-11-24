@@ -28,72 +28,64 @@ class Data_Annotator(object):
             
         config_file = open(config_name, "r")
         config = json.load(config_file)
-        for instruction in config['instructions']:
-            # instruction = parameters['instruction ' + str(i)]
-            labels = instruction.split()[1].split('/')
 
-            array_key = '_'.join(labels) + '_' + '_'.join(instruction.split()[:1] + instruction.split()[2:])
-            # contains two arrays for the inputs of the two network branches
-            self.data[array_key] = [[],[]]
+        self.concept_groups = config['groups']
+        self.instructions = config['instructions'].values() 
+        self.data = {'_'.join(spatial_labels) : [[],[],[]] for spatial_labels in config['groups'].values()}
 
         print(self.data)
+        print(self.instructions)
 
 
     # given the linguistic instruction, decide which crop goes to which branch of the net and what
     # spatial label is the tuple given
-    def annotate(self, data, debug=False):
+    def annotate(self, debug=False):
         
-        no_input_pairs = len(data)
+        # no_input_clouds = len(self.rosbad_dump)
 
-        for entry in self.rosbad_dump:
-            xyz_crops = entry[0]
-            bgr_crops = entry[1]
-            bgr_out = [[],[]]
+        for instruction in self.instructions:
 
-            for array_key in self.data:
+            instruction = instruction.split()
+            branch_0_label = instruction[0]
+            branch_1_label = instruction[2]
+            spatial_label = instruction[1]
 
-                # we expect the last two symbols in the array name to be colors
-                color_labels = array_key.split('_')[-2:]
-                
-                # print(color_labels)
-                # print(bgr_crops.shape)
-                # cv2.imshow("0", bgr_crops[0].astype(np.uint8))
-                # cv2.imshow("1", bgr_crops[1].astype(np.uint8))
-                # cv2.imshow("2", bgr_crops[2].astype(np.uint8))
-                # cv2.imshow("3", bgr_crops[3].astype(np.uint8))
-                # cv2.waitKey(0)
+            label = None
+            concept_label = None
+            for concept_group in self.concept_groups.values():
+                if spatial_label in concept_group:
+                    label = concept_group.index(spatial_label)
+                    concept_label = '_'.join(concept_group)
+                    break
 
-                for bgr_index, bgr_crop in enumerate(bgr_crops):
+            for entry in self.rosbad_dump:
 
-                    for index, color_label in enumerate(color_labels):
-                        if self.is_color(bgr_crop.astype(np.uint8), color_label):
-                            self.data[array_key][index].append(xyz_crops[bgr_index])
-                            bgr_out[index] = bgr_crop.astype(np.uint8)
+                if not (branch_0_label in entry and branch_1_label in entry):
+                    continue
 
-                            break
+                self.data[concept_label][0].append(entry[branch_0_label])
+                self.data[concept_label][1].append(entry[branch_1_label])
+                self.data[concept_label][2].append(label)
+                    
+                # if debug:
+                #     print(array_key)
+                #     cv2.imshow("first", bgr_out[0])
+                #     cv2.imshow("second", bgr_out[1])
+                #     print('\n')
+                #     cv2.waitKey(1000)
 
-                if debug:
-                    print(array_key)
-                    cv2.imshow("first", bgr_out[0])
-                    cv2.imshow("second", bgr_out[1])
-                    print('\n')
-                    cv2.waitKey(1000)
+        # remove any instructions that were not grounded in the observations
+        self.data = {key : self.data[key] for key in self.data if self.data[key] != [[],[],[]]}
 
-            # keys = self.data.keys()
-            # a = self.data[keys[0]][0][0]
-            # b = self.data[keys[1]][0][0]
-            # print(a == b)
-            # exit()
+        # no_output_clouds = 0
+        # for key in self.data.keys():
+        #     no_output_clouds += len(self.data[key][0]) * 0.5
+        #     no_output_clouds += len(self.data[key][1]) * 0.5
 
-        no_output_pairs = 0
-        for key in self.data.keys():
-            no_output_pairs += len(self.data[key][0])
-            no_output_pairs += len(self.data[key][1])
+        # no_output_clouds = no_output_clouds / float(len(self.data.keys()))
 
-        no_output_pairs = no_output_pairs / float(len(self.data.keys()))
-
-        assert (no_input_pairs * 2 == no_output_pairs),\
-        "Input pairs - {0} | Output pairs - {1}; Potential bad color ranges".format(no_input_pairs * 2, no_output_pairs)
+        # assert (no_input_clouds == no_output_clouds),\
+        # "Input clouds - {0} | Output clouds - {1};".format(no_input_clouds, no_output_clouds)
 
 
     def load_rosbag_dump(self, rosbad_dump_dir):
@@ -103,18 +95,18 @@ class Data_Annotator(object):
     def save_to_npz(self):
 
         for key in self.data.keys():
-            output = {"branch_0":self.data[key][0], "branch_1":self.data[key][1]}
+            output = {"branch_0":self.data[key][0], "branch_1":self.data[key][1], "label":self.data[key][2]}
             np.savez(os.path.join("/home/yordan/pr2_ws/src/spatial_relations_experiments/learning_experiments/data/train/", key + ".npz"), **output)
 
 
 if __name__ == "__main__":
 
-    ROSBAG_DUMP = "../rosbad_dump/"
-    CONFIG = "../config/config.txt"
+    ROSBAG_DUMP = "rosbag_dump/rosbag_dump.npz"
+    CONFIG = "config/config.json"
 
-    annotator = Data_Annotator()
+    annotator = Data_Annotator(CONFIG)
 
-    annotator.load_rosbag_dump()
+    annotator.load_rosbag_dump(ROSBAG_DUMP)
 
     annotator.annotate()
 
