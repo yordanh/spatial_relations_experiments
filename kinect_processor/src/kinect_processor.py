@@ -418,7 +418,7 @@ class Kinect_Data_Processor(object):
         
         # extract the color and spatial information for each object
         new_mask = np.zeros((height, width))
-        new_entry = [[],[]]
+        new_entry = {}
         for cnt in contours[:self.parameters['no_objects']]:
             M = cv2.moments(cnt)
             cX = int(M["m10"] / M["m00"])
@@ -447,23 +447,19 @@ class Kinect_Data_Processor(object):
                 hsv_crop = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
                 xyz = xyz_crop_trans_norm[np.logical_and(hsv_crop[...,0] >= self.hues[hue][0], hsv_crop[...,0] <= self.hues[hue][1])]
 
+                # ignore any small patches
                 if len(xyz) < 200:
                     continue
 
-                # result[hue] = xyz_crop_trans_norm[np.logical_and(hsv_crop[...,0] >= hues[hue][0], hsv_crop[...,0] <= hues[hue][1])]
                 # hsv_crop[np.logical_or(hsv_crop[...,0] < hues[hue][0], hsv_crop[...,0] > hues[hue][1])] = 0
 
                 # cv2.imshow("crop", cv2.cvtColor(hsv_crop, cv2.COLOR_HSV2BGR))
                 # cv2.waitKey(0)
 
-            # np.savez("/home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/cloud.npz", **result)
-            # exit()
-
                 assert ((xyz <= 1).all() and (xyz >= 0).all()),\
                 "The data can not be normalised in the range [0,1] - Potentially bad bounds"
 
-                new_entry[0].append(xyz)
-                new_entry[1].append(hue)
+                new_entry[hue] = xyz
 
                 # if self.debug:
                 #     # build up a mask with regions of interest

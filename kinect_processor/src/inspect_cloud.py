@@ -18,9 +18,8 @@ print(len(clouds))
 for cloud in clouds:
 	fig = plt.figure()
 	ax = fig.gca(projection='3d')
-	for i in range(len(cloud[0])):
-		points = cloud[0][i]
-		color = cloud[1][i]
+	for color in cloud:
+		points = cloud[color]
 
 		xs = points[:,0][::3]
 		ys = points[:,1][::3]
@@ -30,7 +29,6 @@ for cloud in clouds:
 		ys_filtered = list(filter(lambda point : (point != [0,0,0]).all(), ys))
 		zs_filtered = list(filter(lambda point : (point != [0,0,0]).all(), zs))
 
-		# ax.scatter(xs, ys, zs, c=key)
 		ax.scatter(xs_filtered, ys_filtered, zs_filtered, c=color)
 
 	ax.set_xlabel('Z0', fontsize='20', fontweight="bold")
