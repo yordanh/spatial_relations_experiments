@@ -319,6 +319,7 @@ class Kinect_Data_Processor(object):
         self.hues['green'] = [30, 65]
         self.hues['red'] = [170, 180]
         self.hues['purple'] = [130, 160]
+        self.hues['orange'] = [0,5]
 
 
     def callback(self, data):
@@ -403,7 +404,7 @@ class Kinect_Data_Processor(object):
 
         # cv2.imshow("Smoothed", mask * 255)
         # cv2.imshow("bgr", bgr * np.tile(mask[:,:,np.newaxis], (1,1,3)))
-        # cv2.waitKey(1)
+        # cv2.waitKey(0)
 
         mask_copy = copy.deepcopy(mask)
         contours, hier = cv2.findContours(mask_copy, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
@@ -439,27 +440,34 @@ class Kinect_Data_Processor(object):
 
             result = {}
 
-            # filter out the table artefacts
-            xyz_crop_trans_norm[(bgr_crop > 170).all(axis=2)] = 0
-            bgr_crop[(bgr_crop > 170).all(axis=2)] = 0
+            # filter out the white table artefacts (+ object shadows)
+            xyz_crop_trans_norm[(bgr_crop > 120).all(axis=2)] = 0
+            bgr_crop[(bgr_crop > 120).all(axis=2)] = 0
+            hsv_crop = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
+
+            cv2.imshow("crop", bgr_crop)
+            # cv2.waitKey(0)
+            # continue
 
             for hue in self.hues:
-                hsv_crop = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
-                xyz = xyz_crop_trans_norm[np.logical_and(hsv_crop[...,0] >= self.hues[hue][0], hsv_crop[...,0] <= self.hues[hue][1])]
+                xyz_object = xyz_crop_trans_norm[np.logical_and(hsv_crop[...,0] >= self.hues[hue][0], hsv_crop[...,0] <= self.hues[hue][1])]
+
+                print(hue)
+                print(len(xyz_object))
 
                 # ignore any small patches
-                if len(xyz) < 200:
+                if len(xyz_object) < 500:
                     continue
 
-                # hsv_crop[np.logical_or(hsv_crop[...,0] < hues[hue][0], hsv_crop[...,0] > hues[hue][1])] = 0
-
-                # cv2.imshow("crop", cv2.cvtColor(hsv_crop, cv2.COLOR_HSV2BGR))
+                # hsv_copy = hsv_crop.copy()
+                # hsv_copy[np.logical_or(hsv_copy[...,0] < self.hues[hue][0], hsv_copy[...,0] > self.hues[hue][1])] = 0
+                # cv2.imshow("crop_masked", cv2.cvtColor(hsv_copy, cv2.COLOR_HSV2BGR))
                 # cv2.waitKey(0)
 
-                assert ((xyz <= 1).all() and (xyz >= 0).all()),\
+                assert ((xyz_object <= 1).all() and (xyz_object >= 0).all()),\
                 "The data can not be normalised in the range [0,1] - Potentially bad bounds"
 
-                new_entry[hue] = xyz
+                new_entry[hue] = xyz_object
 
                 # if self.debug:
                 #     # build up a mask with regions of interest
