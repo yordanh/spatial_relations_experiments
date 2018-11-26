@@ -18,7 +18,7 @@ import json
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-class Data_Annotator(object):
+class Spatial_Annotator(object):
 
     def __init__(self, config_name):
 
@@ -43,7 +43,9 @@ class Data_Annotator(object):
         
         # no_input_clouds = len(self.rosbad_dump)
 
-        for instruction in self.instructions:
+        for i, instruction in enumerate(self.instructions):
+
+            print("{0}/{1} instructions processed".format(i, len(self.instructions)))
 
             instruction = instruction.split()
             branch_0_label = instruction[0]
@@ -88,26 +90,26 @@ class Data_Annotator(object):
         # "Input clouds - {0} | Output clouds - {1};".format(no_input_clouds, no_output_clouds)
 
 
-    def load_rosbag_dump(self, rosbad_dump_dir):
+    def load_segmented_clouds(self, rosbad_dump_dir):
         self.rosbad_dump = np.load(rosbad_dump_dir)['arr_0']
 
 
-    def save_to_npz(self):
+    def save_to_npz(self, path):
 
         for key in self.data.keys():
             output = {"branch_0":self.data[key][0], "branch_1":self.data[key][1], "label":self.data[key][2]}
-            np.savez(os.path.join("/home/yordan/pr2_ws/src/spatial_relations_experiments/learning_experiments/data/train/", key + ".npz"), **output)
+            np.savez(os.path.join(path, key + ".npz"), **output)
 
 
 if __name__ == "__main__":
 
-    ROSBAG_DUMP = "rosbag_dump/rosbag_dump.npz"
+    SEGMENTED_CLOUDS = "rosbag_dumps/segmented_objects.npz"
     CONFIG = "config/config.json"
 
-    annotator = Data_Annotator(CONFIG)
+    annotator = Spatial_Annotator(CONFIG)
 
-    annotator.load_rosbag_dump(ROSBAG_DUMP)
+    annotator.load_segmented_clouds(SEGMENTED_CLOUDS)
 
     annotator.annotate()
 
-    annotator.save_to_npz()
+    annotator.save_to_npz(path="/home/yordan/pr2_ws/src/spatial_relations_experiments/learning_experiments/data/train/")
