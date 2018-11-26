@@ -315,11 +315,11 @@ class Kinect_Data_Processor(object):
         # hue ranges - [0,180] - used when classifiying patches wrt color labels
         self.hues = {}
         self.hues['blue'] = [90, 130]
-        self.hues['yellow'] = [5, 30]
+        self.hues['yellow'] = [10, 30]
         self.hues['green'] = [30, 65]
         self.hues['red'] = [170, 180]
-        self.hues['purple'] = [130, 160]
-        self.hues['orange'] = [0,5]
+        self.hues['purple'] = [130, 170]
+        self.hues['orange'] = [0,10, 175, 180]
 
 
     def callback(self, data):
@@ -338,8 +338,9 @@ class Kinect_Data_Processor(object):
         offset = 0
         margin_h = 50
         margin_w = 100
+
         # half of the crop's size; we assume a square crop
-        crop_size = 60
+        crop_size = 100
 
         image_bbox = [offset + margin_h, offset + height - margin_h, offset + margin_w, offset + width - margin_w]
 
@@ -411,12 +412,6 @@ class Kinect_Data_Processor(object):
         areas = [cv2.contourArea(cnt) for cnt in contours]
         contours = [x for _,x in sorted(zip(areas,contours), reverse=True)]
         
-        # areas = [x for x,_ in sorted(zip(areas,contours), reverse=True)]
-        # print(len(contours))
-        # print(areas)
-
-        # return(0)
-        
         # extract the color and spatial information for each object
         new_mask = np.zeros((height, width))
         new_entry = {}
@@ -445,22 +440,38 @@ class Kinect_Data_Processor(object):
             bgr_crop[(bgr_crop > 120).all(axis=2)] = 0
             hsv_crop = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
 
-            cv2.imshow("crop", bgr_crop)
+            # cv2.imshow("crop", bgr_crop)
             # cv2.waitKey(0)
             # continue
 
             for hue in self.hues:
-                xyz_object = xyz_crop_trans_norm[np.logical_and(hsv_crop[...,0] >= self.hues[hue][0], hsv_crop[...,0] <= self.hues[hue][1])]
-
+                mask = (np.logical_and(hsv_crop[...,0] > self.hues[hue][0], hsv_crop[...,0] <= self.hues[hue][1])).astype(np.uint8)
+                
                 print(hue)
-                print(len(xyz_object))
+                print(len(mask[mask == 1]))
 
                 # ignore any small patches
-                if len(xyz_object) < 500:
+                if len(mask[mask == 1]) < 500:
                     continue
 
+                if hue == "orange":
+                    # revise the mask to include the low range of red-like colors
+                    mask = (np.logical_or(np.logical_and(hsv_crop[...,0] > self.hues[hue][0], hsv_crop[...,0] <= self.hues[hue][1]), np.logical_and(hsv_crop[...,0] > self.hues[hue][2], hsv_crop[...,0] <= self.hues[hue][3]))).astype(np.uint8)
+                    
+                    kernel = np.ones((5, 5), np.uint8)
+                    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+                    mask = self.fill_holes_get_max_cnt(mask)
+                else:
+                    kernel = np.ones((5, 5), np.uint8)
+                    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+                    # kernel = np.ones((2, 2), np.uint8)
+                    # mask = cv2.dilate(mask, kernel, iterations=1)
+
+                xyz_object = xyz_crop_trans_norm[mask == 1]
+
                 # hsv_copy = hsv_crop.copy()
-                # hsv_copy[np.logical_or(hsv_copy[...,0] < self.hues[hue][0], hsv_copy[...,0] > self.hues[hue][1])] = 0
+                # hsv_copy[mask == 0] = 0
+                # cv2.imshow("mask", mask.reshape(crop_size * 2, crop_size * 2) * 255)
                 # cv2.imshow("crop_masked", cv2.cvtColor(hsv_copy, cv2.COLOR_HSV2BGR))
                 # cv2.waitKey(0)
 
@@ -468,33 +479,8 @@ class Kinect_Data_Processor(object):
                 "The data can not be normalised in the range [0,1] - Potentially bad bounds"
 
                 new_entry[hue] = xyz_object
-
-                # if self.debug:
-                #     # build up a mask with regions of interest
-                #     new_mask[bbox[0] : bbox[1], bbox[2] : bbox[3]] = 1
         
         self.output.append(new_entry)
-
-        # if self.debug:
-        #     xyz_trans = transform_xyz(xyz, target_frame="base_link", height=height, width=width)
-        #     xyz_trans_norm = normalise_xyz(xyz_trans, bounds=self.bounds)
-
-        #     # extend the mask to have 3 channels - for RGB/XYZ - and filter the images
-        #     mask = new_mask
-        #     mask = np.tile(mask.reshape(height, width, 1), (1, 1, 3))
-        #     bgr_fil = (bgr * mask).astype(np.uint8)
-        #     xyz_fil_trans_norm = (xyz_trans_norm * mask)
-
-        #     # print(xyz_crop_trans_norm)
-        #     plot_xyz(xyz_crop_trans_norm)
-        #     # bad_mask_tmp = (xyz_fil_trans_norm > 1.1).any(axis=2).astype(np.uint8)
-        #     # bad_mask = np.tile(bad_mask_tmp.reshape(height, width, 1), (1,1,3))
-
-        #     cv2.imshow("Mask", (mask * 255).astype(np.uint8))
-        #     # cv2.imshow("Bad Mask", (bad_mask * 255).astype(np.uint8))
-        #     cv2.imshow("BGR", bgr)
-        #     cv2.imshow("BGR Filtered", bgr_fil)
-        #     cv2.waitKey(10)
 
     def fill_holes_get_max_cnt(self, mask):
         """Given a binary mask, fills in any holes in the contours, selects the contour with max area
