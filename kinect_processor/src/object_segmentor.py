@@ -254,7 +254,7 @@ class Object_Segmentor(object):
 
 if __name__ == '__main__':
 
-    args = {'no_objects' : 2}
+    args = {'no_objects':6, 'no_object_groups':2}
     segmentor = Object_Segmentor(debug=True, args=args)
     segmentor.load_processed_rosbag("/home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/rosbag_dumps/processed_rosbag.npz")
     segmentor.process_data()

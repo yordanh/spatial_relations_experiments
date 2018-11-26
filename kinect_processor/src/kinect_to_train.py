@@ -19,15 +19,17 @@ if __name__ == "__main__":
 	SEGMENTED_CLOUDS = "rosbag_dumps/segmented_objects.npz"
 	ANNOTATOR_CONFIG = "config/config.json"
 	TRAIN_DATA = "../learning_experiments/data/train/"
-	args = {'no_objects' : 2}
+	args = {'no_objects':6, 'no_object_groups':2}
 
 	segmentor = Object_Segmentor(debug=True, args=args)
+	print(SEGMENTED_CLOUDS + " LOADING\n")
 	segmentor.load_processed_rosbag(PROCESSED_ROSBAG)
 	segmentor.process_data()
 	segmentor.save_to_npz(SEGMENTED_CLOUDS)
-	print(SEGMENTED_CLOUDS + " saved\n")
+	print(SEGMENTED_CLOUDS + " SAVED\n")
 
 	annotator = Spatial_Annotator(ANNOTATOR_CONFIG)
+	print(TRAIN_DATA + " LOADING\n")
 	annotator.load_segmented_clouds(SEGMENTED_CLOUDS)
 	annotator.annotate()
 	annotator.save_to_npz(path=TRAIN_DATA)
