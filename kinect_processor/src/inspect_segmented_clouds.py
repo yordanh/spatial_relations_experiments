@@ -1,16 +1,19 @@
-'''
-==============
-3D scatterplot
-==============
-
-Demonstration of a basic scatterplot in 3D.
-'''
+#!/usr/bin/env python
+"""
+title           :inspect_segmented_clouds.py
+description     :Visualises the segmented objects from each point cloud under
+				:rosbag_dumps/segmented_objects.npz
+author          :Yordan Hristov <yordan.hristov@ed.ac.uk
+date            :11/2018
+python_version  :2.7.6
+==============================================================================
+"""
 
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 import numpy as np
 
-data = np.load("rosbag_dump/rosbag_dump.npz")
+data = np.load("rosbag_dumps/segmented_objects.npz")
 print(data.files)
 
 clouds = data['arr_0']
