@@ -1,7 +1,7 @@
   <launch>
     <arg name="bag_name" value="bowl_cup" />
-    <node pkg="rosbag" type="play" name="player" output="screen" required="true" args="--duration 10 /home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/rosbags/containment_move/$(arg bag_name).bag"/>
-    <node pkg="kinect_processor" type="kinect_processor.py" name="kinect_processor" output="screen" args="$(arg bag_name)">
+    <node pkg="rosbag" type="play" name="player" output="screen" required="true" args="-k /home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/rosbags/containment_move/$(arg bag_name).bag"/>
+    <node pkg="kinect_processor" type="kinect_processor.py" name="kinect_processor" required="true" output="screen" args="$(arg bag_name)">
     </node>
 
   </launch>
