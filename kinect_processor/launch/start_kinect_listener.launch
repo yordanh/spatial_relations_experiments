@@ -1,11 +1,7 @@
   <launch>
-    <arg name="bag_name" value="dynamic_blue_left_below_green_right_above" />
-    <node pkg="rosbag" type="play" name="player" output="screen" required="true" args="/home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/rosbags/semicomplex/$(arg bag_name).bag"/>
-    <node pkg="kinect_processor" type="kinect_processor.py" name="kinect_processor" output="screen">
-         <param name="no_conceptual_groups" type="int" value="2" />
-         <param name="bag_name" type="str" value="$(arg bag_name)" />
-         <param name="instruction 0" type="str" value="blue left/below green" />
-         <param name="instruction 1" type="str" value="green right/above blue" />
+    <arg name="bag_name" value="bowl_cup" />
+    <node pkg="rosbag" type="play" name="player" output="screen" required="true" args="--duration 10 /home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/rosbags/containment_move/$(arg bag_name).bag"/>
+    <node pkg="kinect_processor" type="kinect_processor.py" name="kinect_processor" output="screen" args="$(arg bag_name)">
     </node>
 
   </launch>
