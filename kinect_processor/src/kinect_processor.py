@@ -271,28 +271,34 @@ def report_xyz_stats(xyz_points):
 
 class Kinect_Data_Processor(object):
 
-    def __init__(self, debug=False, parameters=None):
+    def __init__(self, debug=False, cutoff=None):
         self.debug = debug
         self.output = []
         self.counter = 0
+        self.cutoff = cutoff
 
 
     def callback(self, data):
 
         self.counter += 1
-        print("{0} Kinect 2 frames processed.".format(self.counter))
+        if self.counter > self.cutoff:
+            self.save_to_npz()
+            rospy.signal_shutdown('Quit')
+        else:
+            print("{0} Kinect 2 frames processed.".format(self.counter))
 
-        cloud = pointcloud2_to_array(data, split_rgb=True, remove_padding=True)
-        xyz, bgr = get_xyzbgr_points(cloud, remove_nans=False)
-        xyz = np.nan_to_num(xyz)
-        xyz_transformed = transform_xyz(xyz, height=540, width=960)
+            cloud = pointcloud2_to_array(data, split_rgb=True, remove_padding=True)
+            xyz, bgr = get_xyzbgr_points(cloud, remove_nans=False)
+            xyz = np.nan_to_num(xyz)
+            xyz_transformed = transform_xyz(xyz, height=540, width=960)
 
-        self.output.append((xyz_transformed, bgr))
+            self.output.append((xyz_transformed, bgr))
 
 
-    def save_to_npz(self, output_folder):
+    def save_to_npz(self, output_folder="/home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/rosbag_dumps"):
 
         np.savez(os.path.join(output_folder, "processed_rosbag.npz"), self.output)
+        print("NPZ saved.")
 
 
 if __name__ == '__main__':
@@ -304,11 +310,8 @@ if __name__ == '__main__':
     # run simultaneously.
     rospy.init_node('kinect_processor', anonymous=True)
 
-    k_processor = Kinect_Data_Processor(debug=True)
+    k_processor = Kinect_Data_Processor(debug=True, cutoff=600)
     rospy.Subscriber("/kinect2/qhd/points", PointCloud2, k_processor.callback)
 
     # spin() simply keeps python from exiting until this node is stopped
     rospy.spin()
-
-    k_processor.save_to_npz("/home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/rosbag_dumps")
-    print("NPZ saved")
