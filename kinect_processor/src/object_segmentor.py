@@ -195,6 +195,13 @@ class Object_Segmentor(object):
                     if np.sum(mask) < 500:
                         continue
 
+                    # filter any fragmentations in the mask -> pick the biggest contour, without 
+                    # filling it, the rest we colour black
+                    cnts, hier = cv2.findContours(mask.astype(np.uint8),cv2.RETR_CCOMP,cv2.CHAIN_APPROX_SIMPLE)
+                    cnts = sorted(cnts, key=lambda x : cv2.contourArea(x), reverse=True)
+                    for cnt in cnts[1:]:
+                        cv2.drawContours(mask,[cnt],0,0,-1)
+
                     xyz_object = xyz_crop_norm[mask == 1]
                     
                     if self.verbose:
