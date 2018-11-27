@@ -1,0 +1,63 @@
+{
+	"groups" : {
+		"0" : ["left", "right"],
+		"1" : ["behind", "front"],
+		"2" : ["perp", "parallel"]
+	},
+	"labels" : {
+		"train" : [],
+		"unseen" : []
+	},
+	"data_generation" : {
+		"train" : {
+			"spec" : {
+			   	"scale" : ["big", "small"],
+			   	"color" : ["red", "blue"]
+			}
+		},
+		"unseen" : [
+			{
+				"label" : "red",
+				"spec" : {
+				   	"color" : ["ured"],
+			   		"scale" : ["umedium", "usmall", "ubig"]
+				}
+			},
+			{
+				"label" : "red",
+				"spec" : {
+				   	"color" : ["ublue"],
+			   		"scale" : ["usmall", "umedium", "ubig"]
+				}
+			},
+			{
+				"label" : "red",
+				"spec" : {
+				   	"color" : ["uyellow"],
+			   		"scale" : ["usmall", "umedium", "ubig"]
+				}
+			},
+			{
+				"label" : "red",
+				"spec" : {
+				   	"color" : ["ugreen"],
+			   		"scale" : ["usmall", "umedium", "ubig"]
+				}
+			},
+			{
+				"label" : "red",
+				"spec" : {
+				   	"color" : ["red"],
+			   		"scale" : ["umedium"]
+				}
+			},
+			{
+				"label" : "red",
+				"spec" : {
+				   	"color" : ["blue"],
+			   		"scale" : ["umedium"]
+				}
+			}
+		]
+	}
+}
