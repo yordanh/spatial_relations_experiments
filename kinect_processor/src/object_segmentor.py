@@ -21,8 +21,8 @@ from mpl_toolkits.mplot3d import Axes3D
 
 class Object_Segmentor(object):
 
-    def __init__(self, debug=False, args=None):
-        self.debug = debug
+    def __init__(self, verbose=False, args=None):
+        self.verbose = verbose
         self.output = []
         self.counter = 0
         self.args = args
@@ -46,7 +46,10 @@ class Object_Segmentor(object):
         margin_h = 50
         margin_w = 100
         
-        image_bbox = [offset + margin_h, offset + height - margin_h, offset + margin_w, offset + width - margin_w]
+        image_bbox = [offset + margin_h, \
+                      offset + height - margin_h, \
+                      offset + margin_w, \
+                      offset + width - margin_w]
 
         height -= 2*margin_h
         width -= 2*margin_w
@@ -91,7 +94,8 @@ class Object_Segmentor(object):
             backgrounds.append(np.tile(top_right, \
                                        number_of_tiles))
 
-            bottom_right = image[image_size[0] - bg_patch_size : image_size[0], image_size[1] - bg_patch_size : image_size[1], :]
+            bottom_right = image[image_size[0] - bg_patch_size : image_size[0], \
+                                 image_size[1] - bg_patch_size : image_size[1], :]
             bottom_right[(bottom_right > 150).all(axis=2)] = 0
             backgrounds.append(np.tile(bottom_right, \
                                        number_of_tiles))
@@ -106,7 +110,11 @@ class Object_Segmentor(object):
                 final_mask *= mask
 
             # for each pixel, if any of the channel have value = 1, the whole pixels is white in the mask
-            final_mask = np.array(list(map(lambda row : list(map(lambda pixel : np.array([1,1,1]) if pixel[0] == 1 or pixel[1] == 1 or pixel[2] == 1 else pixel, row)), final_mask)), dtype=np.uint8)
+            final_mask = np.array(list(map(lambda row : \
+                                  list(map(lambda pixel : \
+                                  np.array([1,1,1]) if pixel[0] == 1 or \
+                                                       pixel[1] == 1 or \
+                                                       pixel[2] == 1 else pixel, row)), final_mask)), dtype=np.uint8)
 
             final_mask = final_mask[:,:,0]
             mask = self.fill_holes_get_max_cnt(final_mask)
@@ -116,17 +124,17 @@ class Object_Segmentor(object):
 
             # filter the white parts of the pointcloud
             mask = np.logical_and(np.any(bgr < 120, axis=2), np.any(bgr > 0, axis=2)).astype(np.uint8)
-            # cv2.imshow("Pure Mask", mask * 255)
 
             kernel = np.ones((5, 5), np.uint8)
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            kernel = np.ones((2, 2), np.uint8)
             mask = cv2.dilate(mask, kernel, iterations=1)
 
-            # cv2.imshow("bg_sub_mask", mask_extended * 255)
-            # cv2.imshow("Smoothed", mask * 255)
-            # cv2.imshow("bgr", bgr)
-            # cv2.imshow("bgr_masked", bgr * np.tile(mask[:,:,np.newaxis], (1,1,3)))
-            # cv2.waitKey(0)
+            if self.verbose:
+                cv2.imshow("bg_sub_mask", mask_extended * 255)
+                cv2.imshow("Smoothed", mask * 255)
+                cv2.imshow("bgr", bgr)
+                cv2.imshow("bgr_masked", bgr * np.tile(mask[:,:,np.newaxis], (1,1,3)))
 
             mask_copy = copy.deepcopy(mask)
             contours, hier = cv2.findContours(mask_copy, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
@@ -161,8 +169,9 @@ class Object_Segmentor(object):
 
                 hsv_crop = cv2.cvtColor(bgr_crop, cv2.COLOR_BGR2HSV)
 
-                for hue, hue_values in self.hues[cnt_index].items():
-                    mask = (np.logical_and(hsv_crop[...,0] > hue_values[0], hsv_crop[...,0] <= hue_values[1])).astype(np.uint8)
+                for hue, hue_range in self.hues[cnt_index].items():
+                    mask = (np.logical_and(hsv_crop[...,0] > hue_range[0], \
+                                           hsv_crop[...,0] <= hue_range[1])).astype(np.uint8)
                     
                     # smooth out the mask
                     kernel = np.ones((3, 3), np.uint8)
@@ -173,13 +182,14 @@ class Object_Segmentor(object):
 
                     if hue == "orange":
                         # revise the mask to include the low range of red-like colors
-                        mask = (np.logical_or(np.logical_and(hsv_crop[...,0] > hue_values[0], hsv_crop[...,0] <= hue_values[1]), np.logical_and(hsv_crop[...,0] > hue_values[2], hsv_crop[...,0] <= hue_values[3]))).astype(np.uint8)
+                        mask = (np.logical_or(np.logical_and(hsv_crop[...,0] > hue_range[0], \
+                                                             hsv_crop[...,0] <= hue_range[1]), \
+                                              np.logical_and(hsv_crop[...,0] > hue_range[2], \
+                                                             hsv_crop[...,0] <= hue_range[3]))).astype(np.uint8)
                         
                         kernel = np.ones((5, 5), np.uint8)
                         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
                         mask = self.fill_holes_get_max_cnt(mask)
-
-                    # mask = self.fill_holes_get_max_cnt(mask)
 
                     # ignore any small patches
                     if np.sum(mask) < 500:
@@ -187,14 +197,15 @@ class Object_Segmentor(object):
 
                     xyz_object = xyz_crop_norm[mask == 1]
                     
-                    # print(hue)
-                    # print(np.sum(mask))
+                    if self.verbose:
+                        print(hue)
+                        print(np.sum(mask))
 
-                    # hsv_copy = hsv_crop.copy()
-                    # hsv_copy[mask == 0] = 0
-                    # cv2.imshow("mask", mask.reshape(crop_size * 2, crop_size * 2) * 255)
-                    # cv2.imshow("crop_masked", cv2.cvtColor(hsv_copy, cv2.COLOR_HSV2BGR))
-                    # cv2.waitKey(0)
+                        hsv_copy = hsv_crop.copy()
+                        hsv_copy[mask == 0] = 0
+                        cv2.imshow("mask", mask.reshape(crop_size * 2, crop_size * 2) * 255)
+                        cv2.imshow("crop_masked", cv2.cvtColor(hsv_copy, cv2.COLOR_HSV2BGR))
+                        cv2.waitKey(0)
 
                     assert ((xyz_object <= 1).all() and (xyz_object >= 0).all()),\
                     "The data can not be normalised in the range [0,1] - Potentially bad bounds"
@@ -223,18 +234,18 @@ class Object_Segmentor(object):
         return canvas.astype(np.uint8)
 
 
-    def normalise_xyz(self, xyz_points, bounds={}):
+    def normalise_xyz(self, xyz, bounds={}):
         
-        xyz_points_norm = np.zeros(xyz_points.shape)
-        xyz_points_norm[...,0] = (xyz_points[...,0] - bounds['x'][0]) / (bounds['x'][1] - bounds['x'][0])
-        xyz_points_norm[...,1] = (xyz_points[...,1] - bounds['y'][0]) / (bounds['y'][1] - bounds['y'][0])
-        xyz_points_norm[...,2] = (xyz_points[...,2] - bounds['z'][0]) / (bounds['z'][1] - bounds['z'][0])
+        xyz_norm = np.zeros(xyz.shape)
+        xyz_norm[...,0] = (xyz[...,0] - bounds['x'][0]) / (bounds['x'][1] - bounds['x'][0])
+        xyz_norm[...,1] = (xyz[...,1] - bounds['y'][0]) / (bounds['y'][1] - bounds['y'][0])
+        xyz_norm[...,2] = (xyz[...,2] - bounds['z'][0]) / (bounds['z'][1] - bounds['z'][0])
 
-        mask = np.logical_and((xyz_points_norm <= 1).all(axis=2), (xyz_points_norm >= 0).all(axis=2)).astype(np.uint8)
-        mask = np.tile(mask.reshape(xyz_points_norm.shape[0], xyz_points_norm.shape[1], 1), (1, 1, 3))
-        xyz_points_norm = xyz_points_norm * mask
+        mask = np.logical_and((xyz_norm <= 1).all(axis=2), (xyz_norm >= 0).all(axis=2)).astype(np.uint8)
+        mask = np.tile(mask.reshape(xyz_norm.shape[0], xyz_norm.shape[1], 1), (1, 1, 3))
+        xyz_norm = xyz_norm * mask
 
-        return xyz_points_norm
+        return xyz_norm
 
 
     def plot_xyz(self, xyz_points):
@@ -268,11 +279,11 @@ class Object_Segmentor(object):
 if __name__ == '__main__':
 
     args = {'no_objects':6, 'no_object_groups':2}
-    segmentor = Object_Segmentor(debug=True, args=args)
-    segmentor.load_processed_rosbag("/home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/rosbag_dumps/processed_rosbag.npz")
+    segmentor = Object_Segmentor(verbose=False, args=args)
+    segmentor.load_processed_rosbag("rosbag_dumps/processed_rosbag.npz")
     segmentor.process_data()
 
     print("Final count: "+ str(segmentor.counter))
     segmentor.output = np.array(segmentor.output)
-    segmentor.save_to_npz("/home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/rosbag_dumps/segmented_objects.npz")
+    segmentor.save_to_npz("rosbag_dumps/segmented_objects.npz")
     print("NPZ saved")

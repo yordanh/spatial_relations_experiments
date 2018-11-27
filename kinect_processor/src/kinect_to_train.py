@@ -21,7 +21,7 @@ if __name__ == "__main__":
 	TRAIN_DATA = "../learning_experiments/data/train/"
 	args = {'no_objects':6, 'no_object_groups':2}
 
-	segmentor = Object_Segmentor(debug=True, args=args)
+	segmentor = Object_Segmentor(verbose=False, args=args)
 	print(SEGMENTED_CLOUDS + " LOADING\n")
 	segmentor.load_processed_rosbag(PROCESSED_ROSBAG)
 	segmentor.process_data()

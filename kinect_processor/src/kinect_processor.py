@@ -295,7 +295,7 @@ class Kinect_Data_Processor(object):
             self.output.append((xyz_transformed, bgr))
 
 
-    def save_to_npz(self, output_folder="/home/yordan/pr2_ws/src/spatial_relations_experiments/kinect_processor/rosbag_dumps"):
+    def save_to_npz(self, output_folder="rosbag_dumps"):
 
         np.savez(os.path.join(output_folder, "processed_rosbag.npz"), self.output)
         print("NPZ saved.")
