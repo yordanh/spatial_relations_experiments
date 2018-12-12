@@ -112,3 +112,7 @@ venv.bak/
 *.jpg
 *.model
 *.state
+
+chainer-mask-rcnn/
+
+maskrcnn_model/
