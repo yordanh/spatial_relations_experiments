@@ -17,12 +17,14 @@ from tf import transformations
 from sensor_msgs.msg import PointCloud2, PointField
 
 # Misc Dependencies
+import argparse
 import struct
 import copy
 import time
 import numpy as np
 import cv2
 import os
+import os.path as osp
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -271,11 +273,12 @@ def report_xyz_stats(xyz_points):
 
 class Kinect_Data_Processor(object):
 
-    def __init__(self, debug=False, cutoff=None):
+    def __init__(self, debug=False, args=None):
         self.debug = debug
         self.output = []
         self.counter = 0
-        self.cutoff = cutoff
+        self.cutoff = args.cutoff
+        self.scene = args.scene
 
 
     def callback(self, data):
@@ -295,13 +298,30 @@ class Kinect_Data_Processor(object):
             self.output.append((xyz_transformed, bgr))
 
 
-    def save_to_npz(self, output_folder="rosbag_dumps"):
+    def save_to_npz(self, output_folder="scenes"):
 
-        np.savez(os.path.join(output_folder, "processed_rosbag.npz"), self.output)
+        scene_list = os.listdir(output_folder)
+        if self.scene not in scene_list:
+            os.mkdir(osp.join(output_folder, self.scene))
+
+        npz_list = os.listdir(osp.join(output_folder, self.scene))
+        if npz_list == []:
+            index = 0
+        else:
+            index = sorted([int(x.replace('.npz', '')) for x in npz_list])[-1] + 1
+
+        np.savez(os.path.join(output_folder, self.scene, str(index) + ".npz"), self.output)
         print("NPZ saved.")
 
 
 if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser(description='Save Kinect data to NPZ file')
+    parser.add_argument('--cutoff', default=100, type=int,
+                        help='Number of frames to be captured')
+    parser.add_argument('--scene', '-sc', default='0',
+                        help='Index for a scene/setup')
+    args = parser.parse_args()
 
     # In ROS, nodes are uniquely named. If two nodes with the same
     # node are launched, the previous one is kicked off. The
@@ -310,7 +330,7 @@ if __name__ == '__main__':
     # run simultaneously.
     rospy.init_node('kinect_processor', anonymous=True)
 
-    k_processor = Kinect_Data_Processor(debug=True, cutoff=600)
+    k_processor = Kinect_Data_Processor(debug=True, args=args)
     rospy.Subscriber("/kinect2/qhd/points", PointCloud2, k_processor.callback)
 
     # spin() simply keeps python from exiting until this node is stopped
