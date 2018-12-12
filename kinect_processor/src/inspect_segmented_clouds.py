@@ -13,26 +13,38 @@ from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 import numpy as np
 
-data = np.load("rosbag_dumps/segmented_objects.npz")
+data = np.load("scenes/0/segmented_objects.npz")
 print(data.files)
 
 clouds = data['arr_0']
 print(len(clouds))
-for cloud in clouds:
+for cloud in clouds[::5]:
 	fig = plt.figure()
 	ax = fig.gca(projection='3d')
 	for color in cloud:
-		points = cloud[color]
+		points = cloud[color].reshape(200*200,3)
+		filtered_points = np.array(list(filter(lambda row : filter(lambda point : (point != [0,0,0]).all(), row), points)))
 
-		xs = points[:,0][::3]
-		ys = points[:,1][::3]
-		zs = points[:,2][::3]
+		xs = filtered_points[...,0][::3]
+		ys = filtered_points[...,1][::3]
+		zs = filtered_points[...,2][::3]
 
-		xs_filtered = list(filter(lambda point : (point != [0,0,0]).all(), xs))
-		ys_filtered = list(filter(lambda point : (point != [0,0,0]).all(), ys))
-		zs_filtered = list(filter(lambda point : (point != [0,0,0]).all(), zs))
+		# xs = points[:,0][::3]
+		# ys = points[:,1][::3]
+		# zs = points[:,2][::3]
 
-		ax.scatter(xs_filtered, ys_filtered, zs_filtered, c=color)
+		# points_filtered = list((lambda row: list(filter(lambda point : (point != [0,0,0]).all(), row)), points))
+		# print(points_filtered)
+
+		# xs = points[...,0][::5]
+		# ys = points[...,1][::5]
+		# zs = points[...,2][::5]
+
+		# xs_filtered = list(filter(lambda point : (point != [0]), xs))
+		# ys_filtered = list(filter(lambda point : (point != [0]), ys))
+		# zs_filtered = list(filter(lambda point : (point != [0]), zs))
+
+		ax.scatter(xs, ys, zs, c=color.split('_')[0])
 
 	ax.set_xlabel('Z0', fontsize='20', fontweight="bold")
 	# ax.set_xlim(0, 1)

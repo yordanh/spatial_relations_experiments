@@ -24,37 +24,32 @@ for key in keys:
 		fig.canvas.set_window_title(key)
 		ax = fig.gca(projection='3d')
 
-		points = data['branch_0'][i]	
+		points = data['branch_0'][i].reshape(200*200,3)
+		filtered_points = np.array(list(filter(lambda row : filter(lambda point : (point != [0,0,0]).all(), row), points)))
 
-		xs = points[:,0][::3]
-		ys = points[:,1][::3]
-		zs = points[:,2][::3]
+		xs = filtered_points[...,0][::3]
+		ys = filtered_points[...,1][::3]
+		zs = filtered_points[...,2][::3]
 
-		xs_filtered = list(filter(lambda point : (point != [0,0,0]).all(), xs))
-		ys_filtered = list(filter(lambda point : (point != [0,0,0]).all(), ys))
-		zs_filtered = list(filter(lambda point : (point != [0,0,0]).all(), zs))
-
-		ax.scatter(xs_filtered, ys_filtered, zs_filtered, c='r')
+		ax.scatter(xs, ys, zs, c='r')
 
 
-		points = data['branch_1'][i]	
 
-		xs = points[:,0][::3]
-		ys = points[:,1][::3]
-		zs = points[:,2][::3]
+		points = data['branch_1'][i].reshape(200*200,3)
+		filtered_points = np.array(list(filter(lambda row : filter(lambda point : (point != [0,0,0]).all(), row), points)))
 
-		xs_filtered = list(filter(lambda point : (point != [0,0,0]).all(), xs))
-		ys_filtered = list(filter(lambda point : (point != [0,0,0]).all(), ys))
-		zs_filtered = list(filter(lambda point : (point != [0,0,0]).all(), zs))
+		xs = filtered_points[...,0][::3]
+		ys = filtered_points[...,1][::3]
+		zs = filtered_points[...,2][::3]
 
-		ax.scatter(xs_filtered, ys_filtered, zs_filtered, c='c')
+		ax.scatter(xs, ys, zs, c='c')
 
 		ax.set_title(key.split('_')[data['label'][i]])
-		ax.set_xlabel('Z0', fontsize='20', fontweight="bold")
+		ax.set_xlabel('X', fontsize='20', fontweight="bold")
 		# ax.set_xlim(0, 1)
-		ax.set_ylabel('Z1', fontsize='20', fontweight="bold")
+		ax.set_ylabel('Y', fontsize='20', fontweight="bold")
 		# ax.set_ylim(0, 1)
-		ax.set_zlabel('Z2', fontsize='20', fontweight="bold")
+		ax.set_zlabel('Z', fontsize='20', fontweight="bold")
 		# ax.set_zlim(0, 1)
 
 		plt.show()
