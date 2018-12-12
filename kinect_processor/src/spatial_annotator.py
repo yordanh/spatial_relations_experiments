@@ -32,6 +32,7 @@ class Spatial_Annotator(object):
         self.concept_groups = config['groups']
         self.instructions = config['instructions'].values() 
         self.data = {'_'.join(spatial_labels) : [[],[],[]] for spatial_labels in config['groups'].values()}
+        self.data['unseen'] = [[],[],[]]
 
         print(self.data)
         print(self.instructions)
@@ -68,26 +69,22 @@ class Spatial_Annotator(object):
                 self.data[concept_label][0].append(entry[branch_0_label])
                 self.data[concept_label][1].append(entry[branch_1_label])
                 self.data[concept_label][2].append(label)
-                    
-                # if debug:
-                #     print(array_key)
-                #     cv2.imshow("first", bgr_out[0])
-                #     cv2.imshow("second", bgr_out[1])
-                #     print('\n')
-                #     cv2.waitKey(1000)
 
         # remove any instructions that were not grounded in the observations
         self.data = {key : self.data[key] for key in self.data if self.data[key] != [[],[],[]]}
 
-        # no_output_clouds = 0
-        # for key in self.data.keys():
-        #     no_output_clouds += len(self.data[key][0]) * 0.5
-        #     no_output_clouds += len(self.data[key][1]) * 0.5
 
-        # no_output_clouds = no_output_clouds / float(len(self.data.keys()))
+    # assumes the unseen data is always clouds with two objects in the scene
+    # TODO - generalise that to multiple objects and resultant possble pairs
+    def annotate_unseen(self, debug=False):
+        for entry in self.rosbad_dump:
+            keys = entry.keys()
+            self.data['unseen'][0].append(entry[keys[0]])
+            self.data['unseen'][1].append(entry[keys[1]])
+            self.data['unseen'][2].append(0)
 
-        # assert (no_input_clouds == no_output_clouds),\
-        # "Input clouds - {0} | Output clouds - {1};".format(no_input_clouds, no_output_clouds)
+        # remove any instructions that were not grounded in the observations
+        self.data = {key : self.data[key] for key in self.data if self.data[key] != [[],[],[]]}
 
 
     def load_segmented_clouds(self, rosbad_dump_dir):
@@ -103,13 +100,19 @@ class Spatial_Annotator(object):
 
 if __name__ == "__main__":
 
-    SEGMENTED_CLOUDS = "rosbag_dumps/segmented_objects.npz"
-    CONFIG = "config/config.json"
+    PATH = 'scenes'
 
-    annotator = Spatial_Annotator(CONFIG)
+    annotator = Spatial_Annotator(PATH)
 
     annotator.load_segmented_clouds(SEGMENTED_CLOUDS)
 
-    annotator.annotate()
+    # annotator.annotate()
+    if args['mode'] == 'train':
+        annotator.annotate()
+        annotator.save_to_npz(path="/data/learning_experiments/data/train/")
+    else:
+        annotator.annotate_unseen()
+        annotator.save_to_npz(path="/data/learning_experiments/data/unseen/")
 
-    annotator.save_to_npz(path="/home/yordan/pr2_ws/src/spatial_relations_experiments/learning_experiments/data/train/")
+    # annotator.save_to_npz(path="/home/yordan/pr2_ws/src/spatial_relations_experiments/learning_experiments/data/unseen/")
+    # annotator.save_to_npz(path="/data/learning_experiments/data/unseen/")
