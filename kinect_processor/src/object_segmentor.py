@@ -30,12 +30,18 @@ class Object_Segmentor(object):
 
         # hue ranges - [0,180] - used when classifiying patches wrt color labels
         self.hues = [{},{}]
-        self.hues[1]['blue'] = [90, 130]
-        self.hues[0]['yellow'] = [10, 30]
-        self.hues[0]['green'] = [30, 65]
+        # self.hues[1]['blue'] = [90, 130]
+        # self.hues[0]['yellow'] = [10, 30]
+        # self.hues[0]['green'] = [30, 65]
+        # self.hues[0]['red'] = [170, 180]
+        # self.hues[0]['purple'] = [130, 170]
+        # self.hues[1]['orange'] = [0,10, 175, 180]
+
         self.hues[0]['red'] = [170, 180]
-        self.hues[0]['purple'] = [130, 170]
-        self.hues[1]['orange'] = [0,10, 175, 180]
+        self.hues[0]['green'] = [30, 65]
+        self.hues[1]['red'] = [170, 180]
+        self.hues[1]['green'] = [30, 65]
+
 
 
     def process_data(self):
@@ -43,8 +49,8 @@ class Object_Segmentor(object):
         height = 540
         width = 960
         offset = 0
-        margin_h = 50
-        margin_w = 100
+        margin_h = 0
+        margin_w = 0
         
         image_bbox = [offset + margin_h, \
                       offset + height - margin_h, \
@@ -58,16 +64,28 @@ class Object_Segmentor(object):
         crop_size = 100
 
         # params for the bg subraction
-        bg_patch_size = 20
-        bg_threshold = 50
+        bg_patch_size = 10
+        bg_threshold = 40
 
         for (xyz, bgr) in self.data:
             
             self.counter += 1
+
+            if self.counter >= self.args['cutoff']:
+                return
             print("{0} Clouds Segmented.".format(self.counter))
 
             xyz = xyz[image_bbox[0] : image_bbox[1], image_bbox[2] : image_bbox[3], :]
             bgr = bgr[image_bbox[0] : image_bbox[1], image_bbox[2] : image_bbox[3], :].astype(np.uint8)
+
+            # hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+            # cv2.imshow("red", (hsv[..., 0] > 170).astype(np.uint8) * 255)
+            # cv2.imshow("green", np.logical_and(hsv[..., 0] > 45, hsv[..., 0] < 65).astype(np.uint8) * 255)
+            # cv2.waitKey(0)
+            # continue
+
+
+
 
             # filter only the carpet parts of the point cloud'
             image = bgr.copy()
@@ -117,6 +135,8 @@ class Object_Segmentor(object):
                                                        pixel[2] == 1 else pixel, row)), final_mask)), dtype=np.uint8)
 
             final_mask = final_mask[:,:,0]
+            kernel = np.ones((2, 2), np.uint8)
+            final_mask = cv2.dilate(final_mask, kernel, iterations=1)
             mask = self.fill_holes_get_max_cnt(final_mask)
 
             mask_extended = np.tile(mask[:,:,np.newaxis], (1,1,3))
@@ -127,19 +147,23 @@ class Object_Segmentor(object):
 
             kernel = np.ones((5, 5), np.uint8)
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-            kernel = np.ones((2, 2), np.uint8)
-            mask = cv2.dilate(mask, kernel, iterations=1)
+            # kernel = np.ones((2, 2), np.uint8)
+            # mask = cv2.dilate(mask, kernel, iterations=1)
 
             if self.verbose:
                 cv2.imshow("bg_sub_mask", mask_extended * 255)
                 cv2.imshow("Smoothed", mask * 255)
                 cv2.imshow("bgr", bgr)
                 cv2.imshow("bgr_masked", bgr * np.tile(mask[:,:,np.newaxis], (1,1,3)))
+                cv2.waitKey(0)
 
             mask_copy = copy.deepcopy(mask)
             contours, hier = cv2.findContours(mask_copy, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+
+            contours = list(filter(lambda cnt : cv2.contourArea(cnt) > 100, contours))
+
             areas = [cv2.contourArea(cnt) for cnt in contours]
-            contours = [x for _,x in sorted(zip(areas,contours), reverse=True)]
+            contours = [x for area,x in sorted(zip(areas,contours), reverse=True)]
             
             # extract the color and spatial information for each object
             new_mask = np.zeros((height, width))
@@ -178,7 +202,7 @@ class Object_Segmentor(object):
                     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
 
-                    cv2.imshow("init mask", mask * 255)
+                    # cv2.imshow("init mask", mask * 255)
 
                     if hue == "orange":
                         # revise the mask to include the low range of red-like colors
@@ -202,20 +226,32 @@ class Object_Segmentor(object):
                     for cnt in cnts[1:]:
                         cv2.drawContours(mask,[cnt],0,0,-1)
 
-                    xyz_object = xyz_crop_norm[mask == 1]
-                    
-                    if self.verbose:
-                        print(hue)
-                        print(np.sum(mask))
+                    # print(hue)
+                    # print(xyz_crop_norm.shape)
+                    xyz_object = xyz_crop_norm.copy()
+                    # xyz_object = xyz_crop_norm[mask == 1]
+                    xyz_object[mask != 1] = 0
+                    # print(xyz_object.shape)
 
-                        hsv_copy = hsv_crop.copy()
-                        hsv_copy[mask == 0] = 0
-                        cv2.imshow("mask", mask.reshape(crop_size * 2, crop_size * 2) * 255)
-                        cv2.imshow("crop_masked", cv2.cvtColor(hsv_copy, cv2.COLOR_HSV2BGR))
-                        cv2.waitKey(0)
+                    # if self.verbose:
+                    #     print(hue)
+                    #     print(np.sum(mask))
+
+                    #     hsv_copy = hsv_crop.copy()
+                    #     hsv_copy[mask == 0] = 0
+                    #     cv2.imshow("mask", mask.reshape(crop_size * 2, crop_size * 2) * 255)
+                    #     cv2.imshow("crop_masked", cv2.cvtColor(hsv_copy, cv2.COLOR_HSV2BGR))
+                    #     cv2.waitKey(0)
 
                     assert ((xyz_object <= 1).all() and (xyz_object >= 0).all()),\
                     "The data can not be normalised in the range [0,1] - Potentially bad bounds"
+
+                    # if xyz_object.shape != (crop_size * 2, crop_size * 2, 3):
+                    #     cv2.imshow("bgr", bgr)
+                    #     cv2.waitKey(0)
+                    
+                    assert (xyz_object.shape == (crop_size * 2, crop_size * 2, 3)),\
+                    "For scene {0}, hue {1} has different than expected dimensionality {2} - {3}".format(self.counter, hue, (crop_size * 2, crop_size * 2, 3), xyz_object.shape)
 
                     new_entry[hue] = xyz_object
 
@@ -278,6 +314,7 @@ class Object_Segmentor(object):
 
     def load_processed_rosbag(self, path):
         self.data = np.load(path)['arr_0']
+        print(len(data))
 
     def save_to_npz(self, path):
         np.savez(path, self.output)
@@ -285,7 +322,7 @@ class Object_Segmentor(object):
 
 if __name__ == '__main__':
 
-    args = {'no_objects':6, 'no_object_groups':2}
+    args = {'no_objects':2, 'no_object_groups':2, 'cutoff':80}
     segmentor = Object_Segmentor(verbose=False, args=args)
     segmentor.load_processed_rosbag("rosbag_dumps/processed_rosbag.npz")
     segmentor.process_data()
