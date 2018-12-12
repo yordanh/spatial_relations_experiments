@@ -29,7 +29,7 @@ import chainer.functions as F
 from chainer import serializers
 
 
-import net_50x50 as net
+import net_200x200 as net
 import data_generator
 from config_parser import ConfigParser
 from utils import *
@@ -102,8 +102,8 @@ def main():
 
     generator = data_generator.DataGenerator()
     train_b0, train_b1, train_labels, train_concat, train_vectors, test_b0, test_b1, test_labels, test_concat, test_vectors, unseen_b0, unseen_b1,\
-    unseen_labels, unseen_concat, unseen_vectors, groups = generator.generate_dataset(ignore=ignore, args=args)
-    
+    unseen_labels, groups = generator.generate_dataset(ignore=ignore, args=args)
+
     # test_unseen = np.append(test, unseen, axis=0)
     # test_unseen_labels = np.append(test_labels, unseen_labels, axis=0)
 
@@ -114,15 +114,19 @@ def main():
     print("# Training Branch 1: \t\t{0}".format(train_b1.shape))
     print("# Training labels: \t{0}".format(set(train_labels)))
     print("# Training labels: \t{0}".format(train_labels.shape))
+    print("# Training concat: \t{0}".format(len(train_concat)))
     print("# Training vectors: \t{0}".format(train_vectors.shape))
     print("# Testing Branch 0: \t\t{0}".format(test_b0.shape))
     print("# Testing Branch 1: \t\t{0}".format(test_b1.shape))
     print("# Testing labels: \t{0}".format(set(test_labels)))
+    print("# Testing concat: \t{0}".format(len(test_concat)))
     print("# Testing labels: \t{0}".format(test_labels.shape))
     print("# Testing vectors: \t{0}".format(test_vectors.shape))
     print("# Unseen Branch 0: \t\t{0}".format(unseen_b0.shape))
     print("# Unseen Branch 1: \t\t{0}".format(unseen_b1.shape))
     print("# Unseen labels: \t{0}".format(set(unseen_labels)))
+
+    print("\n# Groups: \t{0}".format(groups))
     print('###############################################\n')
 
     train_iter = chainer.iterators.SerialIterator(train_concat, args.batchsize)
@@ -145,9 +149,9 @@ def main():
     no_std = 1
 
     config_parser = ConfigParser(os.path.join(args.config, "config.json"))
-    groups = config_parser.parse_groups()
+    # groups = config_parser.parse_groups()
     n_groups = len(groups.keys())
-
+    
     if args.mode == "supervised":
         stats, model, optimizer, _ = training_loop(model=model, optimizer=optimizer, stats=stats, 
                                                                epochs=args.epoch_labelled, train_iter=train_iter, 
@@ -167,7 +171,7 @@ def main():
 ########### RESULTS ANALYSIS ###########
 ########################################
 
-    model.to_cpu()  
+    model.to_cpu()
 
     plot_loss_curves(stats=stats, args=args)
 
@@ -186,12 +190,17 @@ def main():
     
     axis_ranges = [-5, 5]
     # colors = {'left':'red', 'right':'green'}
-    concept_groups = {0:['left', 'right'], 1:['behind', 'front'], 2:['perp', 'parallel']}
-    for group_key in concept_groups:
-        for label in concept_groups[group_key]:
-            indecies = [i for i, x in enumerate(train_labels[group_key::3]) if x == label]
-            filtered_data_b0 = train_b0.take(indecies, axis=0)
-            filtered_data_b1 = train_b1.take(indecies, axis=0)
+    # concept_groups = {0:['left', 'right'], 1:['behind', 'front'], 2:['perp', 'parallel']}
+    for group_key in groups:
+        for label in groups[group_key]:
+            
+            print("Visualising label:\t{0}, Group:\t{1}".format(label, group_key))
+
+            indecies = [i for i, x in enumerate(train_labels) if x == label]
+            filtered_data_b0 = train_b0.take(indecies, axis=0)[:100]
+            filtered_data_b1 = train_b1.take(indecies, axis=0)[:100]
+
+            print(filtered_data_b0.shape)
 
             latent_mu = model.get_latent(filtered_data_b0, filtered_data_b1).data
             pairs = [(0,1), (0,2), (1,2)]
@@ -210,7 +219,7 @@ def main():
                 plt.ylabel("Z_" + str(pair[1]))
                 
                 plt.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=14)
-                plt.savefig("result/" + label + "_Z_" + str(pair[0]) + "_Z_" + str(pair[1]), bbox_inches="tight")
+                plt.savefig("result/scatter/group_" + str(group_key) + "_" + label + "_Z_" + str(pair[0]) + "_Z_" + str(pair[1]), bbox_inches="tight")
                 plt.close()
 
 
