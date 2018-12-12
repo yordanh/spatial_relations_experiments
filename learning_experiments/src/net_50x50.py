@@ -207,14 +207,20 @@ class Conv_Siam_VAE(chainer.Chain):
 
         def lf(x):
 
+            group_n = len(self.groups_len)
+
             in_img_b0 = x[0]
             in_img_b1 = x[1]
-            in_labels = x[3:]
+            masks = x[2]
+            in_labels = x[3]
 
-            mask = x[2]
+            non_masked = []
+            masks_flipped = []
+
             # escape dividing by 0 when there are no labelled data points in the batch
-            non_masked = sum(mask) + 1
-            mask_flipped = 1 - mask
+            for i in range(group_n):
+                non_masked[i] = sum(masks[i]) + 1
+                masks_flipped[i] = 1 - masks[i]
 
             rec_loss = 0
             label_loss = 0
@@ -241,13 +247,13 @@ class Conv_Siam_VAE(chainer.Chain):
                     n = self.groups_len[i] - 1
 
                     # certain labels should not contribute to the calculation of the label loss values
-                    fixed_labels = (cupy.tile(cupy.array([1] + [-100] * n), (batchsize, 1)) * mask_flipped[:, cupy.newaxis])
-                    out_labels[i] = out_labels[i] * mask[:, cupy.newaxis] + fixed_labels
+                    fixed_labels = (cupy.tile(cupy.array([1] + [-100] * n), (batchsize, 1)) * masks_flipped[i][:, cupy.newaxis])
+                    out_labels[i] = out_labels[i] * masks[i][:, cupy.newaxis] + fixed_labels
 
                     label_acc_tmp = F.accuracy(out_labels[i], in_labels[i]) / k
                     label_acc += label_acc_tmp
                     # accs[i].append(label_acc_tmp) 
-                    label_loss += self.gamma * F.softmax_cross_entropy(out_labels[i], in_labels[i]) / (k * non_masked)
+                    label_loss += self.gamma * F.softmax_cross_entropy(out_labels[i], in_labels[i]) / (k * non_masked[i])
 
 
 

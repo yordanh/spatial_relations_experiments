@@ -36,7 +36,9 @@ class Conv_Siam_VAE(chainer.Chain):
             ########################
             # encoder for branch 0 #
             ########################
-            self.encoder_conv_b0_0 = L.Convolution2D(in_channels_branch_0, 32, ksize=7, pad=3) # (100, 100)
+            self.encoder_conv_b0_00 = L.Convolution2D(in_channels_branch_0, 32, ksize=7, pad=3) # (200, 200)
+            #max pool ksize=2 (100, 100)
+            self.encoder_conv_b0_0 = L.Convolution2D(32, 32, ksize=7, pad=3) # (100, 100)
             # max pool ksize=2 (50, 50)
             self.encoder_conv_b0_1 = L.Convolution2D(32, 16, ksize=5, pad=2) # (50, 50)
             # max pool ksize=2 (25,25)
@@ -53,7 +55,9 @@ class Conv_Siam_VAE(chainer.Chain):
             ########################
             # encoder for branch 1 #
             ########################
-            self.encoder_conv_b1_0 = L.Convolution2D(in_channels_branch_1, 32, ksize=7, pad=3) # (100, 100)
+            self.encoder_conv_b1_00 = L.Convolution2D(in_channels_branch_1, 32, ksize=7, pad=3) # (200, 200)
+            #max pool ksize=2 (100, 100)
+            self.encoder_conv_b1_0 = L.Convolution2D(32, 32, ksize=7, pad=3) # (100, 100)
             # max pool ksize=2 (50, 50)
             self.encoder_conv_b1_1 = L.Convolution2D(32, 16, ksize=5, pad=2) # (50, 50)
             # max pool ksize=2 (25,25)
@@ -93,6 +97,8 @@ class Conv_Siam_VAE(chainer.Chain):
             # unpool ksize=2 (50, 50)
             self.decoder_conv_b0_3 = L.Convolution2D(16, 32, ksize=5, pad=2) # (50, 50)
             # unpool ksize=2 (100, 100)
+            self.decoder_conv_b0_4 = L.Convolution2D(32, 32, ksize=7, pad=3) # (100, 100)
+            # unpool ksize=2 (200, 200)
             self.decoder_output_img_b0 = L.Convolution2D(32, in_channels_branch_0, ksize=7, pad=3) # (100, 100)
 
             ########################
@@ -108,17 +114,21 @@ class Conv_Siam_VAE(chainer.Chain):
             self.decoder_conv_b1_2 = L.Convolution2D(16, 16, ksize=4) # (25, 25)
             # unpool ksize=2 (50, 50)
             self.decoder_conv_b1_3 = L.Convolution2D(16, 32, ksize=5, pad=2) # (50, 50)
-            # unpool ksize=2 (100, 100)
-            self.decoder_output_img_b1 = L.Convolution2D(32, in_channels_branch_1, ksize=7, pad=3) # (100, 100)
+             # unpool ksize=2 (100, 100)
+            self.decoder_conv_b1_4 = L.Convolution2D(32, 32, ksize=7, pad=3) # (100, 100)
+            # unpool ksize=2 (200, 200)
+            self.decoder_output_img_b1 = L.Convolution2D(32, in_channels_branch_0, ksize=7, pad=3) # (100, 100)
 
 
-    def __call__(self, x):
+    def __call__(self, x_b0, x_b1):
         """AutoEncoder"""
         encoded = self.encode(x_b0, x_b1)
         return self.decode(encoded[2], encoded[4])
 
     def encode(self, x_b0, x_b1):
-        conv_b0_0_encoded = F.relu(self.encoder_conv_b0_0(x_b0)) # (100, 100)
+        conv_b0_00_encoded = F.relu(self.encoder_conv_b0_00(x_b0)) # (200, 200)
+        pool_b0_00_encoded = F.max_pooling_2d(conv_b0_00_encoded, ksize=2) # (100, 100)
+        conv_b0_0_encoded = F.relu(self.encoder_conv_b0_0(pool_b0_00_encoded)) # (100, 100)
         pool_b0_0_encoded = F.max_pooling_2d(conv_b0_0_encoded, ksize=2) # (50, 50)
         conv_b0_1_encoded = F.relu(self.encoder_conv_b0_1(pool_b0_0_encoded)) # (50, 50)
         pool_b0_1_encoded = F.max_pooling_2d(conv_b0_1_encoded, ksize=2) # (25, 25)
@@ -130,7 +140,9 @@ class Conv_Siam_VAE(chainer.Chain):
         mu_b0 = self.encoder_mu_b0(dense_b0_0_encoded) # (1, 2)
         ln_var_b0 = self.encoder_ln_var_b0(dense_b0_0_encoded)  # (1, 2) log(sigma**2)
 
-        conv_b1_0_encoded = F.relu(self.encoder_conv_b1_0(x_b1)) # (100, 100)
+        conv_b1_00_encoded = F.relu(self.encoder_conv_b1_00(x_b1)) # (200, 200)
+        pool_b1_00_encoded = F.max_pooling_2d(conv_b1_00_encoded, ksize=2) # (100, 100)
+        conv_b1_0_encoded = F.relu(self.encoder_conv_b1_0(pool_b1_00_encoded)) # (100, 100)
         pool_b1_0_encoded = F.max_pooling_2d(conv_b1_0_encoded, ksize=2) # (50, 50)
         conv_b1_1_encoded = F.relu(self.encoder_conv_b1_1(pool_b1_0_encoded)) # (50, 50)
         pool_b1_1_encoded = F.max_pooling_2d(conv_b1_1_encoded, ksize=2) # (25, 25)
@@ -148,7 +160,7 @@ class Conv_Siam_VAE(chainer.Chain):
         # learn the operator over the two latent vectors (vector per object)
         concat_mu = F.concat((mu_b0, mu_b1), axis=1)
         concat_ln_var = F.concat((ln_var_b0, ln_var_b1), axis=1)
-        
+
         mu_tmp = F.relu(self.operator_mu_0(concat_mu))
         ln_var_tmp = F.relu(self.operator_ln_var_0(concat_ln_var))
 
@@ -170,7 +182,9 @@ class Conv_Siam_VAE(chainer.Chain):
         up_b0_2_decoded = F.unpooling_2d(deconv_b0_2_decoded, ksize=2, cover_all=False) # (50, 50)
         deconv_b0_3_decoded = F.relu(self.decoder_conv_b0_3(up_b0_2_decoded)) # (50, 50)
         up_b0_3_decoded = F.unpooling_2d(deconv_b0_3_decoded, ksize=2, cover_all=False) # (100, 100)
-        out_img_b0 = self.decoder_output_img_b0(up_b0_3_decoded) # (100, 100)
+        deconv_b0_4_decoded = F.relu(self.decoder_conv_b0_4(up_b0_3_decoded)) # (100, 100)
+        up_b0_4_decoded = F.unpooling_2d(deconv_b0_4_decoded, ksize=2, cover_all=False) # (200, 200)
+        out_img_b0 = self.decoder_output_img_b0(up_b0_4_decoded) # (200, 200)
 
         dense_b1_0_decoded = self.decoder_dense_b1_0(z_b1) # (1, 8)
         dense_b1_1_decoded = self.decoder_dense_b1_1(dense_b1_0_decoded) # (1, 512)
@@ -183,7 +197,9 @@ class Conv_Siam_VAE(chainer.Chain):
         up_b1_2_decoded = F.unpooling_2d(deconv_b1_2_decoded, ksize=2, cover_all=False) # (50, 50)
         deconv_b1_3_decoded = F.relu(self.decoder_conv_b1_3(up_b1_2_decoded)) # (50, 50)
         up_b1_3_decoded = F.unpooling_2d(deconv_b1_3_decoded, ksize=2, cover_all=False) # (100, 100)
-        out_img_b1 = self.decoder_output_img_b1(up_b1_3_decoded) # (100, 100)
+        deconv_b1_4_decoded = F.relu(self.decoder_conv_b1_4(up_b1_3_decoded)) # (100, 100)
+        up_b1_4_decoded = F.unpooling_2d(deconv_b1_4_decoded, ksize=2, cover_all=False) # (200, 200)
+        out_img_b1 = self.decoder_output_img_b1(up_b1_4_decoded) # (200, 200)
 
         # need the check because the bernoulli_nll has a sigmoid in it
         if sigmoid:
@@ -222,19 +238,18 @@ class Conv_Siam_VAE(chainer.Chain):
         def lf(x):
 
             group_n = len(self.groups_len)
-
             in_img_b0 = x[0]
             in_img_b1 = x[1]
-            masks = x[2]
-            in_labels = x[3]
+            masks = x[2 : 2 + group_n]
+            in_labels = x[2 + group_n : ]
 
-            non_masked = []
-            masks_flipped = []
+            non_masked = [[] for _ in range(group_n)]
+            masks_flipped = [[] for _ in range(group_n)]
 
             # escape dividing by 0 when there are no labelled data points in the batch
-            for i in range(group_n):
-                non_masked[i] = sum(masks[i]) + 1
-                masks_flipped[i] = 1 - masks[i]
+            for j in range(group_n):
+                non_masked[j] = sum(masks[j]) + 1
+                masks_flipped[j] = 1 - masks[j]
 
             rec_loss = 0
             label_loss = 0
