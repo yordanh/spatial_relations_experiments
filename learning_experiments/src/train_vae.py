@@ -96,9 +96,9 @@ def main():
     # os.mkdir(os.path.join(args.out, "models"))
 
     if args.mode == "unsupervised":
-        ignore = []
+        ignore = ["unseen"]
     else:
-        ignore = ["unlabelled"]
+        ignore = ["unseen", "unlabelled"]
 
     generator = data_generator.DataGenerator()
     train_b0, train_b1, train_labels, train_concat, train_vectors, test_b0, test_b1, test_labels, test_concat, test_vectors, unseen_b0, unseen_b1,\
@@ -203,7 +203,8 @@ def main():
             print(filtered_data_b0.shape)
 
             latent_mu = model.get_latent(filtered_data_b0, filtered_data_b1).data
-            pairs = [(0,1), (0,2), (1,2)]
+            # pairs = [(0,1), (0,2), (1,2)]
+            pairs = [(0,1)]
             for pair in pairs:
                 plt.scatter(latent_mu[:, pair[0]], latent_mu[:, pair[1]], c='red', label=label, alpha=0.75)
                 plt.grid()
@@ -219,7 +220,35 @@ def main():
                 plt.ylabel("Z_" + str(pair[1]))
                 
                 plt.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=14)
-                plt.savefig("result/scatter/group_" + str(group_key) + "_" + label + "_Z_" + str(pair[0]) + "_Z_" + str(pair[1]), bbox_inches="tight")
+                plt.savefig("result/scatter/train_group_" + str(group_key) + "_" + label + "_Z_" + str(pair[0]) + "_Z_" + str(pair[1]), bbox_inches="tight")
+                plt.close()
+
+
+            indecies = [i for i, x in enumerate(test_labels) if x == label]
+            filtered_data_b0 = test_b0.take(indecies, axis=0)[:100]
+            filtered_data_b1 = test_b1.take(indecies, axis=0)[:100]
+
+            print(filtered_data_b0.shape)
+
+            latent_mu = model.get_latent(filtered_data_b0, filtered_data_b1).data
+            # pairs = [(0,1), (0,2), (1,2)]
+            pairs = [(0,1)]
+            for pair in pairs:
+                plt.scatter(latent_mu[:, pair[0]], latent_mu[:, pair[1]], c='red', label=label, alpha=0.75)
+                plt.grid()
+
+                # major axes
+                plt.plot([axis_ranges[0], axis_ranges[1]], [0,0], 'k')
+                plt.plot([0,0], [axis_ranges[0], axis_ranges[1]], 'k')
+
+                plt.xlim(axis_ranges[0], axis_ranges[1])
+                plt.ylim(axis_ranges[0], axis_ranges[1])
+
+                plt.xlabel("Z_" + str(pair[0]))
+                plt.ylabel("Z_" + str(pair[1]))
+                
+                plt.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=14)
+                plt.savefig("result/scatter/test_group_" + str(group_key) + "_" + label + "_Z_" + str(pair[0]) + "_Z_" + str(pair[1]), bbox_inches="tight")
                 plt.close()
 
 
