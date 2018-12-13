@@ -9,16 +9,25 @@ python_version  :2.7.6
 ==============================================================================
 """
 
+import argparse
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 import numpy as np
 
-data = np.load("scenes/0/segmented_objects.npz")
-print(data.files)
+parser = argparse.ArgumentParser(description='Annotate the data for a particular scene')
+parser.add_argument('--scene', '-sc', default='0',
+                    help='Index for a scene/setup')
+parser.add_argument('--every_nth', default=5, type=int, 
+                    help='Every nth datapoint inspected')
+args = parser.parse_args()
+
+data = np.load('scenes/' + args.scene + '/segmented_objects.npz')
 
 clouds = data['arr_0']
 print(len(clouds))
-for cloud in clouds[::5]:
+for i, cloud in enumerate(clouds[::args.every_nth]):
+
+	print("{0}/{1}".format(args.every_nth * i, len(clouds)))
 	fig = plt.figure()
 	ax = fig.gca(projection='3d')
 	for color in cloud:
@@ -29,28 +38,13 @@ for cloud in clouds[::5]:
 		ys = filtered_points[...,1][::3]
 		zs = filtered_points[...,2][::3]
 
-		# xs = points[:,0][::3]
-		# ys = points[:,1][::3]
-		# zs = points[:,2][::3]
-
-		# points_filtered = list((lambda row: list(filter(lambda point : (point != [0,0,0]).all(), row)), points))
-		# print(points_filtered)
-
-		# xs = points[...,0][::5]
-		# ys = points[...,1][::5]
-		# zs = points[...,2][::5]
-
-		# xs_filtered = list(filter(lambda point : (point != [0]), xs))
-		# ys_filtered = list(filter(lambda point : (point != [0]), ys))
-		# zs_filtered = list(filter(lambda point : (point != [0]), zs))
-
 		ax.scatter(xs, ys, zs, c=color.split('_')[0])
 
-	ax.set_xlabel('Z0', fontsize='20', fontweight="bold")
+	ax.set_xlabel('X', fontsize='20', fontweight="bold")
 	# ax.set_xlim(0, 1)
-	ax.set_ylabel('Z1', fontsize='20', fontweight="bold")
+	ax.set_ylabel('Y', fontsize='20', fontweight="bold")
 	# ax.set_ylim(0, 1)
-	ax.set_zlabel('Z2', fontsize='20', fontweight="bold")
+	ax.set_zlabel('Z', fontsize='20', fontweight="bold")
 	# ax.set_zlim(0, 1)
 
 	plt.show()
