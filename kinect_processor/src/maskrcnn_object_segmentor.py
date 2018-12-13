@@ -158,22 +158,6 @@ class Object_Segmentor(object):
                    
             self.output.append(new_entry)
 
-    def fill_holes_get_max_cnt(self, mask, fill=-1):
-        """Given a binary mask, fills in any holes in the contours, selects the contour with max area
-        and returns a mask with only it drawn + its bounding box
-        """
-        canvas = np.zeros(mask.shape, dtype=np.uint8)
-        cnts, hier = cv2.findContours(mask.astype(np.uint8),cv2.RETR_CCOMP,cv2.CHAIN_APPROX_SIMPLE)
-        areas = [cv2.contourArea(cnt) for cnt in cnts]
-
-        # for (cnt, area) in sorted(zip(cnts, areas), key=lambda x: x[1], reverse=True):
-        #     cv2.drawContours(canvas,[cnt],0,1,-1)
-
-        (cnt, area) = sorted(zip(cnts, areas), key=lambda x: x[1], reverse=True)[0]
-        cv2.drawContours(canvas,[cnt],0,1,fill)
-
-        return canvas.astype(np.uint8)
-
 
     def normalise_xyz(self, xyz, bounds={}):
         
@@ -187,27 +171,6 @@ class Object_Segmentor(object):
         xyz_norm = xyz_norm * mask
 
         return xyz_norm
-
-
-    def plot_xyz(self, xyz_points):
-
-        xs = xyz_points[:,:,0][::5]
-        ys = xyz_points[:,:,1][::5]
-        zs = xyz_points[:,:,2][::5]
-
-        fig = plt.figure()
-        ax = fig.gca(projection='3d')
-
-        ax.scatter(xs, ys, zs, c='c')
-        
-        ax.set_xlabel('X', fontsize='20', fontweight="bold")
-        ax.set_xlim(-1, 1)
-        ax.set_ylabel('Y', fontsize='20', fontweight="bold")
-        ax.set_ylim(-1, 1)
-        ax.set_zlabel('Z', fontsize='20', fontweight="bold")
-        ax.set_zlim(0, 1)
-
-        plt.show()
 
 
     def load_processed_rosbag(self):
@@ -230,7 +193,7 @@ class Object_Segmentor(object):
         np.savez(path, self.output)
 
 
-    def load_model(self, folder_name="."):
+    def load_model(self, folder_name="maskrcnn_model"):
 
         # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         # param
@@ -311,13 +274,11 @@ if __name__ == '__main__':
                         help='Number of frames to be captured')
     parser.add_argument('--scene', '-sc', default='0',
                         help='Index for a scene/setup')
-    parser.add_argument('--dtype', default='train',
-                        help='Work with seen ot unseen data')
     args = parser.parse_args()
 
     segmentor = Object_Segmentor(verbose=False, args=args)
     segmentor.load_processed_rosbag()
-    segmentor.load_model("maskrcnn_model")
+    segmentor.load_model()
     segmentor.process_data()
 
     print("Final count: "+ str(segmentor.counter))
