@@ -87,6 +87,9 @@ class Object_Segmentor(object):
             batch = batch[np.newaxis, :]
             bboxes, masks, labels, scores = self.mask_rcnn.predict(batch)
 
+            print(self.class_names[labels])
+            print(scores)
+
             indecies = scores[0] >= self.score_threshold
             bboxes = bboxes[0][indecies]
             masks = masks[0][indecies]
@@ -98,7 +101,7 @@ class Object_Segmentor(object):
             if not all([x in labels for x in self.expected_objects]):
                 print("Only these objects were found - {0} with scores - {1}".format(labels, scores))
                 cv2.imshow("bgr", bgr)
-                cv2.waitKey(0)
+                cv2.waitKey(5000)
                 continue                
 
             # cv2.imshow("bgr", bgr)
@@ -175,7 +178,7 @@ class Object_Segmentor(object):
 
     def load_processed_rosbag(self):
         self.data = []
-        file_names = [x for x in os.listdir(osp.join('scenes', str(self.scene))) if '.npz' in x]
+        file_names = sorted([x for x in os.listdir(osp.join('scenes', str(self.scene))) if '.npz' in x and 'segmented' not in x])
         for file_name in file_names:
             
             print("Loading {0}".format(file_name))
@@ -259,7 +262,7 @@ class Object_Segmentor(object):
         )
         
         self.class_names = np.array(class_names)
-        self.score_threshold = 0.6
+        self.score_threshold = 0.05
 
         # self.mask_rcnn.to_cpu()
         chainer.cuda.get_device_from_id(0).use()
