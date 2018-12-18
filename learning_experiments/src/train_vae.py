@@ -202,7 +202,10 @@ def main():
     output = {"gt_b0": gt_b0, "gt_b1": gt_b1, 'rec_b0': rec_b0, 'rec_b1': rec_b1}
     np.savez(os.path.join(args.out, "reconstruction_arrays/train" + ".npz"), **output)
     
-    axis_ranges = [-5, 5]
+    axis_ranges = [-15, 15]
+    # pairs = [(0,1), (0,2), (1,2)]
+    pairs = list(itertools.combinations(range(len(groups)), 2))
+    
     # colors = {'left':'red', 'right':'green'}
     # concept_groups = {0:['left', 'right'], 1:['behind', 'front'], 2:['perp', 'parallel']}
     for group_key in groups:
@@ -211,24 +214,23 @@ def main():
             print("Visualising label:\t{0}, Group:\t{1}".format(label, group_key))
 
             indecies = [i for i, x in enumerate(train_labels) if x == label]
-            filtered_data_b0 = train_b0.take(indecies, axis=0)[:100]
-            filtered_data_b1 = train_b1.take(indecies, axis=0)[:100]
-
+            filtered_data_b0 = train_b0.take(indecies, axis=0)
+            filtered_data_b0 = filtered_data_b0[::len(filtered_data_b0) / 100 + 1]
+            filtered_data_b1 = train_b1.take(indecies, axis=0)
+            filtered_data_b1 = filtered_data_b1[::len(filtered_data_b1) / 100 + 1]
             print(filtered_data_b0.shape)
 
-            latent_mu = model.get_latent(filtered_data_b0, filtered_data_b1).data
-            # pairs = [(0,1), (0,2), (1,2)]
-            pairs = [(0,1)]
+            latent = np.array(model.get_latent(filtered_data_b0, filtered_data_b1))
             for pair in pairs:
-                plt.scatter(latent_mu[:, pair[0]], latent_mu[:, pair[1]], c='red', label=label, alpha=0.75)
+                plt.scatter(latent[pair[0], :], latent[pair[1], :], c='red', label=label, alpha=0.75)
                 plt.grid()
 
                 # major axes
                 plt.plot([axis_ranges[0], axis_ranges[1]], [0,0], 'k')
                 plt.plot([0,0], [axis_ranges[0], axis_ranges[1]], 'k')
 
-                plt.xlim(axis_ranges[0], axis_ranges[1])
-                plt.ylim(axis_ranges[0], axis_ranges[1])
+                # plt.xlim(axis_ranges[0], axis_ranges[1])
+                # plt.ylim(axis_ranges[0], axis_ranges[1])
 
                 plt.xlabel("Z_" + str(pair[0]))
                 plt.ylabel("Z_" + str(pair[1]))
@@ -239,24 +241,23 @@ def main():
 
 
             indecies = [i for i, x in enumerate(test_labels) if x == label]
-            filtered_data_b0 = test_b0.take(indecies, axis=0)[:100]
-            filtered_data_b1 = test_b1.take(indecies, axis=0)[:100]
-
+            filtered_data_b0 = test_b0.take(indecies, axis=0)
+            filtered_data_b0 = filtered_data_b0[::len(filtered_data_b0) / 100 + 1]
+            filtered_data_b1 = test_b1.take(indecies, axis=0)
+            filtered_data_b1 = filtered_data_b1[::len(filtered_data_b1) / 100 + 1]
             print(filtered_data_b0.shape)
 
-            latent_mu = model.get_latent(filtered_data_b0, filtered_data_b1).data
-            # pairs = [(0,1), (0,2), (1,2)]
-            pairs = [(0,1)]
+            latent = np.array(model.get_latent(filtered_data_b0, filtered_data_b1))
             for pair in pairs:
-                plt.scatter(latent_mu[:, pair[0]], latent_mu[:, pair[1]], c='red', label=label, alpha=0.75)
+                plt.scatter(latent[pair[0], :], latent[pair[1], :], c='red', label=label, alpha=0.75)
                 plt.grid()
 
                 # major axes
                 plt.plot([axis_ranges[0], axis_ranges[1]], [0,0], 'k')
                 plt.plot([0,0], [axis_ranges[0], axis_ranges[1]], 'k')
 
-                plt.xlim(axis_ranges[0], axis_ranges[1])
-                plt.ylim(axis_ranges[0], axis_ranges[1])
+                # plt.xlim(axis_ranges[0], axis_ranges[1])
+                # plt.ylim(axis_ranges[0], axis_ranges[1])
 
                 plt.xlabel("Z_" + str(pair[0]))
                 plt.ylabel("Z_" + str(pair[1]))
