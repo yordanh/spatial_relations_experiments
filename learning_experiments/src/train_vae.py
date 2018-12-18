@@ -135,6 +135,20 @@ def main():
 
     # Prepare VAE model, defined in net.py
     model = net.Conv_Siam_VAE(train_b0.shape[1], train_b1.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
+
+
+
+    # vs = model.get_latent(test_b0[:8], test_b0[:8])
+    # vs = model(test_b0[:8], test_b0[:8])
+    # import chainer.computational_graph as c
+    # g = c.build_computational_graph(vs)
+    # with open('./file.dot', 'w') as o:
+    #     o.write(g.dump())
+    # exit()
+
+
+
+
     if args.gpu >= 0:
         # Make a specified GPU current
         chainer.cuda.get_device_from_id(args.gpu).use()
