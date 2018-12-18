@@ -304,7 +304,7 @@ class Kinect_Data_Processor(object):
         if self.scene not in scene_list:
             os.mkdir(osp.join(output_folder, self.scene))
 
-        npz_list = os.listdir(osp.join(output_folder, self.scene))
+        npz_list = [x for x in os.listdir(osp.join(output_folder, self.scene)) if '.npz' in x and "segmented" not in x]
         if npz_list == []:
             index = 0
         else:
@@ -322,6 +322,8 @@ if __name__ == '__main__':
     parser.add_argument('--scene', '-sc', default='0',
                         help='Index for a scene/setup')
     args = parser.parse_args()
+
+    time.sleep(3)
 
     # In ROS, nodes are uniquely named. If two nodes with the same
     # node are launched, the previous one is kicked off. The
