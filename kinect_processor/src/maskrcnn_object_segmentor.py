@@ -68,6 +68,8 @@ class Object_Segmentor(object):
         bg_patch_size = 10
         bg_threshold = 40
 
+        last_entry = None
+
         for (xyz, bgr) in self.data:
             
             self.counter += 1
@@ -101,7 +103,10 @@ class Object_Segmentor(object):
             if not all([x in labels for x in self.expected_objects]):
                 print("Only these objects were found - {0} with scores - {1}".format(labels, scores))
                 cv2.imshow("bgr", bgr)
-                cv2.waitKey(5000)
+                cv2.waitKey(2000)
+                if last_entry == {} or last_entry == None:
+                    print("BAD LAST ENTRY - {0}".format(last_entry))
+                self.output.append(last_entry)
                 continue                
 
             # cv2.imshow("bgr", bgr)
@@ -158,9 +163,9 @@ class Object_Segmentor(object):
 
             assert len(new_entry.items()) == len(self.expected_objects), \
             "Some objects were not extracted for cloud # {0}! {1}".format(self.counter, new_entry.keys())
-                   
+            
             self.output.append(new_entry)
-
+            last_entry = new_entry.copy()
 
     def normalise_xyz(self, xyz, bounds={}):
         
