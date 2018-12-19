@@ -21,7 +21,7 @@ RUN apt-get update && \
      apt-get install -y libglew1.5 libglew-dev libglfw3-dev
 
 # Python
-ARG python_version=2.7.6
+ARG python_version=2.7.11
 
 ###
 # OpenCV (and skvideo for recording)
@@ -109,3 +109,5 @@ RUN echo 'bind -n M-Right select-pane -R' >> ~/.tmux.conf
 RUN echo 'bind -n M-Up select-pane -U' >> ~/.tmux.conf
 RUN echo 'bind -n M-Down select-pane -D' >> ~/.tmux.conf
 RUN echo 'set-window-option -g xterm-keys on' >> ~/.tmux.conf
+
+RUN pip install ipympl
