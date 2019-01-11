@@ -18,10 +18,13 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 from config_parser import ConfigParser
+from spatial_augmenter import SpatialAugmenter
 
 class DataGenerator(object):
-    def __init__(self, label_mode=None):
+    def __init__(self, label_mode=None, augment_counter=1):
         self.label_mode = label_mode
+        self.augment_counter = augment_counter
+        self.augmenter = SpatialAugmenter()
 
     def generate_dataset(self, ignore=[], args=None):
         
@@ -89,39 +92,58 @@ class DataGenerator(object):
                 array_name = array_name.split('_')[:-1]
                 array_name = '_'.join(array_name)
 
-                train_b0 += list(np.take(pair_list['branch_0'], train_indecies, axis=0))
-                train_b1 += list(np.take(pair_list['branch_1'], train_indecies, axis=0))
+                chunk_b0 = list(np.take(pair_list['branch_0'], train_indecies, axis=0))
+                chunk_b1 = list(np.take(pair_list['branch_1'], train_indecies, axis=0))
+                train_b0 += chunk_b0
+                train_b1 += chunk_b1
+
                 vectors = list(np.take(pair_list['label'], train_indecies, axis=0))                      
+                chunk_labels = [array_name.split('_')[x] for x in vectors]
+                train_labels += chunk_labels
 
-                train_labels += [array_name.split('_')[x] for x in vectors]
-
-                for i in groups:
-                    label = filter(lambda x : x in groups[i], array_name.split('_'))
-                    if label != []:
-                        train_vectors[i] += vectors
-                        train_masks[i] += [1] * train_n
-                    else:
-                        label = 0
-                        train_vectors[i] += list(np.tile(label, (train_n)))
-                        train_masks[i] += [0] * train_n
-
-
-
-                test_b0 += list(np.take(pair_list['branch_0'], test_indecies, axis=0))
-                test_b1 += list(np.take(pair_list['branch_1'], test_indecies, axis=0))
-                vectors = list(np.take(pair_list['label'], test_indecies, axis=0))
-
-                test_labels += [array_name.split('_')[x] for x in vectors]
+                for _ in range(self.augment_counter):
+                    chunk_b0_aug, chunk_b1_aug = self.augmenter.augment(chunk_b0, chunk_b1)
+                    train_b0 += list(chunk_b0_aug)
+                    train_b1 += list(chunk_b1_aug)
+                    train_labels += chunk_labels
 
                 for i in groups:
-                    label = filter(lambda x : x in groups[i], array_name.split('_'))
-                    if label != []:
-                        test_vectors[i] += vectors
-                        test_masks[i] += [1] * test_n
-                    else:
-                        label = 0
-                        test_vectors[i] += list(np.tile(label, (test_n)))
-                        test_masks[i] += [0] * test_n
+                    for _ in range(self.augment_counter + 1):
+                        label = filter(lambda x : x in groups[i], array_name.split('_'))
+                        if label != []:
+                            train_vectors[i] += vectors
+                            train_masks[i] += [1] * train_n
+                        else:
+                            label = 0
+                            train_vectors[i] += list(np.tile(label, (train_n)))
+                            train_masks[i] += [0] * train_n
+
+
+                chunk_b0 = list(np.take(pair_list['branch_0'], test_indecies, axis=0))
+                chunk_b1 = list(np.take(pair_list['branch_1'], test_indecies, axis=0))
+                test_b0 += chunk_b0
+                test_b1 += chunk_b1
+
+                vectors = list(np.take(pair_list['label'], test_indecies, axis=0))                      
+                chunk_labels = [array_name.split('_')[x] for x in vectors]
+                test_labels += chunk_labels
+
+                for _ in range(self.augment_counter):
+                    chunk_b0_aug, chunk_b1_aug = self.augmenter.augment(chunk_b0, chunk_b1)
+                    test_b0 += list(chunk_b0_aug)
+                    test_b1 += list(chunk_b1_aug)
+                    test_labels += chunk_labels
+
+                for i in groups:
+                    for _ in range(self.augment_counter + 1):
+                        label = filter(lambda x : x in groups[i], array_name.split('_'))
+                        if label != []:
+                            test_vectors[i] += vectors
+                            test_masks[i] += [1] * test_n
+                        else:
+                            label = 0
+                            test_vectors[i] += list(np.tile(label, (test_n)))
+                            test_masks[i] += [0] * test_n
 
 
 
