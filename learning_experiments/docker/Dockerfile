@@ -14,7 +14,7 @@ RUN mkdir -p $CONDA_DIR && \
     rm Miniconda3-4.2.12-Linux-x86_64.sh
 
 # Python
-ARG python_version=2.7.6
+ARG python_version=2.7.11
 
 ###
 # OpenCV (and skvideo for recording)
@@ -84,3 +84,5 @@ RUN echo 'set-window-option -g xterm-keys on' >> ~/.tmux.conf
 
 # CMD /bin/bash
 # CMD jupyter notebook --port=8888 --ip=0.0.0.0 --allow-root
+
+RUN pip install ipympl
