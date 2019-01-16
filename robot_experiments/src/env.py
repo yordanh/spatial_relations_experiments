@@ -26,6 +26,7 @@ import sys
 import os
 import os.path as osp
 import math
+import gym.spaces
 
 BASE_DIR = '/home/yordan/spatial_relations_experiments/'
 KINECT_DIR = osp.join(BASE_DIR, 'kinect_processor')
@@ -44,24 +45,41 @@ from delta_pose import PR2RobotController
 
 
 
-class Env(object):
+class PR2Env(gym.Env):
     """Gym-like environment that interfaces the learning algorithm with the physical robot """
 
-    def __init__(self, args=None, spec=[]):
+    def __init__(self, args=None, goal_spec=[], episode_len=100):
 
+        self.step_counter = 0
+        self.episode_len = episode_len
+
+        # Create action space
+        self.action_space_size = 6
+        low = np.ones((self.action_space_size)) * -1
+        high = np.ones((self.action_space_size))
+        self.action_space = gym.spaces.Box(low, high, dtype=np.float32)
+
+         # Create observation space
+        self.observation_space_size = 10
+        low = np.ones((self.observation_space_size)) * -30
+        high = np.ones((self.observation_space_size)) * 30
+        self.observation_space = gym.spaces.Box(low, high, dtype=np.float32)
+
+
+        # Init all necessary modules for the Kinect processing pipeline
         self.k_processor = Kinect_Data_Processor(debug=True, args=args)
         self.segmentor = Object_Segmentor(verbose=False, args=args, mode="robot")
-        self.segmentor.load_model(folder_name=osp.join(KINECT_DIR, 'maskrcnn_model'), gpu_id=1)
+        self.segmentor.load_model(folder_name=osp.join(KINECT_DIR, 'maskrcnn_model'), gpu_id=0)
 
         # TODO
         # read the groups and the group-related statistics resulting from the
         # embedding learning experiments
         groups = {0: ['front', 'behind'], 1: ['left', 'right']}
         self.embedding_model = Conv_Siam_VAE(3, 3, n_latent=8, groups=groups)
-        serializers.load_npz(osp.join(LEARNING_DIR, 'result/models/final.model'), self.embedding_model)
+        serializers.load_npz(osp.join(LEARNING_DIR, 'result_good_small_batch_size/models/final.model'), self.embedding_model)
         
         # TODO
-        # calculate a goal embedding conditioned on the input spec
+        # calculate a goal embedding conditioned on the input goal_spec
         # self.goal_em = ...
         # TEMPORARILY sample a random goal vector
         self.goal_em = np.random.uniform(low=-5, high=5, size=2)
@@ -72,7 +90,6 @@ class Env(object):
 
         # init the robot controller
         self.pr2 = PR2RobotController('right_arm')
-        self.pr2.reset_pose()
 
 
     def get_embedding(self):
@@ -92,7 +109,8 @@ class Env(object):
         b1 = b1[np.newaxis, :]
         b1 = np.swapaxes(b1, 1, 3).astype(np.float32)
 
-        embedding = np.array(self.embedding_model.get_latent(b0, b1))
+        embedding = np.array(self.embedding_model.get_latent(b0, b1)[0])
+        embedding = np.array([x.data for x in embedding]).astype(np.float32)
 
         return embedding
 
@@ -105,7 +123,7 @@ class Env(object):
 
         obs_em = self.get_embedding()
 
-        return np.concatenate((position, orientation, obs_em.flatten(), self.goal_em.flatten()))
+        return np.concatenate((position, orientation, obs_em.flatten(), self.goal_em.flatten())).astype(np.float32)
 
 
     # return the reward, given a goal embedding and an observation embedding
@@ -121,13 +139,27 @@ class Env(object):
     def step(self, a):
 
         # do action a (sent to robot and wait)
-        (delta_t, delta_rpy) = a
-        self.pr2.move_delta_t_rpy(delta_t, delta_rpy)
+        # (delta_t, delta_rpy) = a
+        # self.pr2.move_delta_t_rpy(delta_t, delta_rpy)
+        self.pr2.move_delta_t_rpy(np.zeros(3), np.zeros(3))
 
         s = self.get_state()
         r = self.get_reward(goal_em=s[-2], obs_em=s[-1])
 
-        return (s.flatten(), r)
+        done = False
+
+        if self.step_counter >= self.episode_len:
+            done = True
+
+        return (s.flatten().astype(np.float32), r, done, None)
+
+
+    def reset(self):
+        self.pr2.reset_pose()
+        self.step_counter = 0
+
+        return self.get_state().flatten().astype(np.float32)
+
 
 if __name__ == "__main__":
 
@@ -142,9 +174,18 @@ if __name__ == "__main__":
                         help='Verbose logging')
     args = parser.parse_args()
 
-    env = Env(args=args)
+    env = PR2Env(args=args)
+    s = env.reset()
+    print(s)
+    print(s.shape)
+    print(s.dtype)
 
     for _ in range(10):
+        s = env.get_state()
+        print(s)
+        print(s.shape)
+        print(s.dtype)
+        continue
         delta_t = np.random.uniform(low=-0.02, high=0.02, size=3)
         delta_rpy = np.random.uniform(low=-math.pi/12., high=math.pi/12., size=3)
         print("Delta t:\t {0},\tDelta RPY:\t {1}".format(delta_t, delta_rpy))
