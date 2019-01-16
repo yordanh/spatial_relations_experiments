@@ -21,6 +21,7 @@ import argparse
 import struct
 import copy
 import time
+import threading
 import numpy as np
 import cv2
 import os
@@ -44,8 +45,6 @@ _DATATYPES[PointField.INT32]   = ('i', 4)
 _DATATYPES[PointField.UINT32]  = ('I', 4)
 _DATATYPES[PointField.FLOAT32] = ('f', 4)
 _DATATYPES[PointField.FLOAT64] = ('d', 8)
-
-tf_listener = tf.TransformListener()
 
 def pointcloud2_to_array_dummy(msg):
     global fmt_full
@@ -220,7 +219,7 @@ def get_xyzbgr_points(cloud_array, remove_nans=True):
     return xyz_points, bgr_points
 
 
-def transform_xyz(xyz_points, target_frame="base_link", height=None, width=None):
+def transform_xyz(xyz_points, target_frame="base_link", height=None, width=None, tf_listener=None):
 
         tf_listener.waitForTransform(target_frame, "/head_mount_kinect2_ir_optical_frame", rospy.Time(), rospy.Duration(4.0))
         translation, rotation = tf_listener.lookupTransform(target_frame, "/head_mount_kinect2_ir_optical_frame", rospy.Duration(0))
@@ -279,24 +278,42 @@ class Kinect_Data_Processor(object):
         self.counter = 0
         self.cutoff = args.cutoff
         self.scene = args.scene
+        self.mode = args.mode
+        self.args = args
+        self.thread = None
+
+        # In ROS, nodes are uniquely named. If two nodes with the same
+        # node are launched, the previous one is kicked off. The
+        # anonymous=True flag means that rospy will choose a unique
+        # name for our 'listener' node so that multiple listeners can
+        # run simultaneously.
+        rospy.init_node('kinect_processor', anonymous=True)
+
+        rospy.Subscriber("/kinect2/qhd/points", PointCloud2, self.callback)
+
+        self.tf_listener = tf.TransformListener()
 
 
     def callback(self, data):
 
         self.counter += 1
         if self.counter > self.cutoff:
-            self.save_to_npz()
+            if self.mode == 'gather':
+                self.save_to_npz()
             rospy.signal_shutdown('Quit')
         else:
-            print("{0} Kinect 2 frames processed.".format(self.counter))
+            if self.args.verbose:
+                print("{0} Kinect 2 frames processed.".format(self.counter))
 
             cloud = pointcloud2_to_array(data, split_rgb=True, remove_padding=True)
             xyz, bgr = get_xyzbgr_points(cloud, remove_nans=False)
             xyz = np.nan_to_num(xyz)
-            xyz_transformed = transform_xyz(xyz, height=540, width=960)
+            xyz_transformed = transform_xyz(xyz, height=540, width=960, tf_listener=self.tf_listener)
 
-            self.output.append((xyz_transformed, bgr))
-
+            if self.mode == 'gather':
+                self.output.append((xyz_transformed, bgr))
+            else:
+                self.output = [xyz_transformed, bgr]
 
     def save_to_npz(self, output_folder="scenes"):
 
@@ -314,6 +331,21 @@ class Kinect_Data_Processor(object):
         print("NPZ saved.")
 
 
+    def run(self):
+
+        # spin() simply keeps python from exiting until this node is stopped
+        rospy.spin()
+
+
+    def async_run(self):
+        self.thread = threading.Thread(target=lambda : self.run())
+        self.thread.start()
+
+
+    def async_close(self):
+        if self.thread:
+            rospy.signal_shutdown('Quit')
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Save Kinect data to NPZ file')
@@ -321,19 +353,15 @@ if __name__ == '__main__':
                         help='Number of frames to be captured')
     parser.add_argument('--scene', '-sc', default='0',
                         help='Index for a scene/setup')
+    parser.add_argument('--mode', '-m', default='gather',
+                        help='Whether we are gathering data or learning')
+    parser.add_argument('--verbose', type=int, default=0,
+                        help='Verbose logging')
     args = parser.parse_args()
 
     time.sleep(3)
 
-    # In ROS, nodes are uniquely named. If two nodes with the same
-    # node are launched, the previous one is kicked off. The
-    # anonymous=True flag means that rospy will choose a unique
-    # name for our 'listener' node so that multiple listeners can
-    # run simultaneously.
-    rospy.init_node('kinect_processor', anonymous=True)
+    
 
     k_processor = Kinect_Data_Processor(debug=True, args=args)
-    rospy.Subscriber("/kinect2/qhd/points", PointCloud2, k_processor.callback)
-
-    # spin() simply keeps python from exiting until this node is stopped
-    rospy.spin()
+    k_processor.run()
