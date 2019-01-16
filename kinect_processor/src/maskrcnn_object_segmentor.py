@@ -30,16 +30,19 @@ import os.path as osp
 
 class Object_Segmentor(object):
 
-    def __init__(self, verbose=False, args=None):
+    def __init__(self, verbose=False, args=None, mode="gather"):
         self.verbose = verbose
         self.output = []
         self.counter = 0
         self.args = args
         self.cutoff = args.cutoff
         self.scene = args.scene
+        self.mode = mode
 
-        config_file = open(osp.join('scenes', self.scene, 'config.json'), "r")
-        self.expected_objects = json.load(config_file)['expected_objects']
+        self.expected_objects = ['red_cube', 'green_cube']
+        if self.mode == "gather":
+            config_file = open(osp.join('scenes', self.scene, 'config.json'), "r")
+            self.expected_objects = json.load(config_file)['expected_objects']
 
         self.bounds = {'x':[0.1, 1.3], 'y':[-0.5, 0.5], 'z':[0.0, 1.0]}
 
@@ -76,7 +79,11 @@ class Object_Segmentor(object):
 
             if self.counter >= self.cutoff:
                 return
-            print("{0} Clouds Segmented.".format(self.counter))
+
+            if self.mode == "gather":
+                print("{0} Clouds Segmented.".format(self.counter))
+            else:
+                print("Observe and Segment")
 
             xyz = xyz[image_bbox[0] : image_bbox[1], image_bbox[2] : image_bbox[3], :]
             bgr = bgr[image_bbox[0] : image_bbox[1], image_bbox[2] : image_bbox[3], :].astype(np.uint8)
@@ -89,15 +96,15 @@ class Object_Segmentor(object):
             batch = batch[np.newaxis, :]
             bboxes, masks, labels, scores = self.mask_rcnn.predict(batch)
 
-            print(self.class_names[labels])
-            print(scores)
+            # print(self.class_names[labels])
+            # print(scores)
 
             indecies = scores[0] >= self.score_threshold
             bboxes = bboxes[0][indecies]
             masks = masks[0][indecies]
             labels = labels[0][indecies]
             labels = self.class_names[labels]
-            print(labels)
+            # print(labels)
             scores = scores[0][indecies]
 
             if not all([x in labels for x in self.expected_objects]):
@@ -194,6 +201,11 @@ class Object_Segmentor(object):
             print(self.data.shape)
 
 
+    # load a single frame for segmentation
+    def load_processed_frame(self, data):
+        self.data = [data]
+
+
     def save_to_npz(self, output_folder="scenes"):
 
         print("{0} clouds are saved in the npz array.".format(len(self.output)))
@@ -201,7 +213,7 @@ class Object_Segmentor(object):
         np.savez(path, self.output)
 
 
-    def load_model(self, folder_name="maskrcnn_model"):
+    def load_model(self, folder_name="maskrcnn_model", gpu_id=0):
 
         # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
         # param
@@ -270,7 +282,7 @@ class Object_Segmentor(object):
         self.score_threshold = 0.05
 
         # self.mask_rcnn.to_cpu()
-        chainer.cuda.get_device_from_id(0).use()
+        chainer.cuda.get_device_from_id(gpu_id).use()
         self.mask_rcnn.to_gpu()
 
 
