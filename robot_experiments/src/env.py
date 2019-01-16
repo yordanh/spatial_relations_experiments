@@ -1,0 +1,157 @@
+#!/usr/bin/env python
+"""
+title           :env.py
+description     :Provides a gym-like env that interfaces with the PR2
+author          :Yordan Hristov <yordan.hristov@ed.ac.uk
+date            :01/2019
+python_version  :2.7.6
+==============================================================================
+"""
+
+# ROS-related imports
+import rospy
+import tf
+from tf.transformations import euler_from_quaternion
+from sensor_msgs.msg import PointCloud2, PointField
+
+# Chainer
+from chainer import serializers
+
+# Misc
+import argparse
+import threading
+import time
+import numpy as np
+import sys
+import os
+import os.path as osp
+import math
+
+BASE_DIR = '/home/yordan/spatial_relations_experiments/'
+KINECT_DIR = osp.join(BASE_DIR, 'kinect_processor')
+LEARNING_DIR = osp.join(BASE_DIR, 'learning_experiments')
+ROBOT_DIR = osp.join(BASE_DIR, 'robot_experiments')
+
+sys.path.insert(0, osp.join(KINECT_DIR, 'src'))
+sys.path.insert(0, osp.join(LEARNING_DIR, 'src'))
+sys.path.insert(0, osp.join(ROBOT_DIR, 'src'))
+
+# Sibling Modules
+from kinect_processor import Kinect_Data_Processor
+from maskrcnn_object_segmentor import Object_Segmentor
+from net_200x200 import Conv_Siam_VAE
+from delta_pose import PR2RobotController
+
+
+
+class Env(object):
+    """Gym-like environment that interfaces the learning algorithm with the physical robot """
+
+    def __init__(self, args=None, spec=[]):
+
+        self.k_processor = Kinect_Data_Processor(debug=True, args=args)
+        self.segmentor = Object_Segmentor(verbose=False, args=args, mode="robot")
+        self.segmentor.load_model(folder_name=osp.join(KINECT_DIR, 'maskrcnn_model'), gpu_id=1)
+
+        # TODO
+        # read the groups and the group-related statistics resulting from the
+        # embedding learning experiments
+        groups = {0: ['front', 'behind'], 1: ['left', 'right']}
+        self.embedding_model = Conv_Siam_VAE(3, 3, n_latent=8, groups=groups)
+        serializers.load_npz(osp.join(LEARNING_DIR, 'result/models/final.model'), self.embedding_model)
+        
+        # TODO
+        # calculate a goal embedding conditioned on the input spec
+        # self.goal_em = ...
+        # TEMPORARILY sample a random goal vector
+        self.goal_em = np.random.uniform(low=-5, high=5, size=2)
+
+        # process the incoming Kinect frames to produce a Transformed Point Cloud
+        # runs in a separate thread
+        self.k_processor.async_run()
+
+        # init the robot controller
+        self.pr2 = PR2RobotController('right_arm')
+        self.pr2.reset_pose()
+
+
+    def get_embedding(self):
+        # get latest Transformed Poing Cloud and segment it
+        # k_processor runs in a separate thread
+        (xyz, bgr) = self.k_processor.output[-1]
+        self.segmentor.load_processed_frame([xyz, bgr])
+        self.segmentor.process_data()
+
+        # embed the segmented Point Cloud
+        # !! swap the axes for the object PCs before feeding into the model
+        b0 = self.segmentor.output[0]['red_cube']
+        b0 = b0[np.newaxis, :]
+        b0 = np.swapaxes(b0, 1, 3).astype(np.float32)
+
+        b1 = self.segmentor.output[0]['green_cube']
+        b1 = b1[np.newaxis, :]
+        b1 = np.swapaxes(b1, 1, 3).astype(np.float32)
+
+        embedding = np.array(self.embedding_model.get_latent(b0, b1))
+
+        return embedding
+
+
+    def get_state(self, target_frame="base_link", ee_frame="/r_gripper_r_finger_tip_link"):
+        # return obs vector - [x, y, z, xr, yr, zr, obs_em, goal_em]
+        self.k_processor.tf_listener.waitForTransform(target_frame, ee_frame, rospy.Time(), rospy.Duration(4.0))
+        position, quaternion = self.k_processor.tf_listener.lookupTransform(target_frame, ee_frame, rospy.Duration(0))
+        orientation = euler_from_quaternion (quaternion)
+
+        obs_em = self.get_embedding()
+
+        return np.concatenate((position, orientation, obs_em.flatten(), self.goal_em.flatten()))
+
+
+    # return the reward, given a goal embedding and an observation embedding
+    # we get highest reward when the two vectors are the same
+    def get_reward(self, goal_em=None, obs_em=None, scaling_factor=1):
+        cosine_sim = np.dot(goal_em, obs_em) / (np.linalg.norm(goal_em) * np.linalg.norm(obs_em))
+        magnitude_diff = abs(np.linalg.norm(goal_em) - np.linalg.norm(obs_em))
+
+        return scaling_factor * (cosine_sim - magnitude_diff)
+
+
+    # given an action, execute it on the robot and return (next state, reward)
+    def step(self, a):
+
+        # do action a (sent to robot and wait)
+        (delta_t, delta_rpy) = a
+        self.pr2.move_delta_t_rpy(delta_t, delta_rpy)
+
+        s = self.get_state()
+        r = self.get_reward(goal_em=s[-2], obs_em=s[-1])
+
+        return (s.flatten(), r)
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser(description='Save Kinect data to NPZ file')
+    parser.add_argument('--cutoff', default=1000, type=int, 
+                        help='Number of frames to be captured')
+    parser.add_argument('--scene', '-sc', default='100', 
+                        help='Index for a scene/setup')
+    parser.add_argument('--mode', '-m', default='gather',
+                        help='Whether we are gathering data or learning')
+    parser.add_argument('--verbose', type=int, default=0,
+                        help='Verbose logging')
+    args = parser.parse_args()
+
+    env = Env(args=args)
+
+    for _ in range(10):
+        delta_t = np.random.uniform(low=-0.02, high=0.02, size=3)
+        delta_rpy = np.random.uniform(low=-math.pi/12., high=math.pi/12., size=3)
+        print("Delta t:\t {0},\tDelta RPY:\t {1}".format(delta_t, delta_rpy))
+        env.step([delta_t, delta_rpy])
+
+    # final cleanup
+    env.k_processor.async_close()
+
+    print("END OF FILE")
+
