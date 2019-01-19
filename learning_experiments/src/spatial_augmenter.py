@@ -27,7 +27,7 @@ class SpatialAugmenter():
         self.verbose=verbose
 
         # 2 cm
-        self.noise = 0.01
+        self.noise = 0.02
 
     def augment(self, branch_0, branch_1):
 
@@ -40,9 +40,13 @@ class SpatialAugmenter():
             global_offsets = np.zeros((3))
 
             ranges = []
-            ranges.append(0 - np.min(points, axis=(0,1,2)))
+            ranges.append([])
+            ranges[0].append(0 - np.min(points[...,0][np.nonzero(points[...,0])]))
+            ranges[0].append(0 - np.min(points[...,1][np.nonzero(points[...,1])]))
+            ranges[0].append(0)
+            ranges[0] = np.array(ranges[0])
+
             ranges.append(1 - np.max(points, axis=(0,1,2)))
-            ranges[0][2] = 0
 
             for i in range(len(global_offsets)):
                 global_offsets[i] = np.random.uniform(low=ranges[0][i], high=ranges[1][i])
