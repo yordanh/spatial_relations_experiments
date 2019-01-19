@@ -27,6 +27,7 @@ import os
 import os.path as osp
 import math
 import gym.spaces
+import matplotlib.pyplot as plt
 
 BASE_DIR = '/home/yordan/spatial_relations_experiments/'
 KINECT_DIR = osp.join(BASE_DIR, 'kinect_processor')
@@ -48,10 +49,28 @@ from delta_pose import PR2RobotController
 class PR2Env(gym.Env):
     """Gym-like environment that interfaces the learning algorithm with the physical robot """
 
-    def __init__(self, args=None, goal_spec=[], episode_len=100):
+    def __init__(self, args=None, goal_spec=[], episode_len=10):
 
+        self.args = args
         self.step_counter = 0
         self.episode_len = episode_len
+
+        if self.args.render:
+            fig = plt.figure()
+            self.ax = fig.add_subplot(1, 1, 1)
+            self.ax.set_xlabel("X")
+            self.ax.set_ylabel("Y")
+            self.ax.grid()
+
+            # major axes
+            axis_ranges = [-10, 10]
+            self.ax.plot([axis_ranges[0], axis_ranges[1]], [0,0], 'k')
+            self.ax.plot([0,0], [axis_ranges[0], axis_ranges[1]], 'k')
+            self.ax.set_xlim(axis_ranges[0], axis_ranges[1])
+            self.ax.set_ylim(axis_ranges[0], axis_ranges[1])
+            
+            # color map for visually encoding time
+            self.cmap = plt.cm.get_cmap('cool')
 
         # Create action space
         self.action_space_size = 6
@@ -159,6 +178,14 @@ class PR2Env(gym.Env):
         self.step_counter = 0
 
         return self.get_state().flatten().astype(np.float32)
+
+
+    def render(self):
+        c_index = self.step_counter / float(self.episode_len)
+        print(c_index)
+        self.ax.scatter(self.obs_em[0], self.obs_em[1], color=self.cmap(c_index), marker='o', s=50, alpha=0.75)
+        plt.draw()
+        plt.pause(0.5)
 
 
 if __name__ == "__main__":
