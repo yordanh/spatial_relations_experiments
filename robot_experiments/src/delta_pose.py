@@ -39,7 +39,9 @@ class PR2RobotController(object):
         
         ## First initialize `moveit_commander`_ and a `rospy`_ node:
         moveit_commander.roscpp_initialize(sys.argv)
-        # rospy.init_node('delta_pose_mover', anonymous=True)
+
+        if rospy.client._init_node_args is None:
+            rospy.init_node('delta_pose_mover', anonymous=True)
 
         self.robot = moveit_commander.RobotCommander()
         self.scene = moveit_commander.PlanningSceneInterface()
