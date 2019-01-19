@@ -10,6 +10,7 @@ python_version  :2.7.6
 """
 
 import os
+import os.path as osp
 import cv2
 import numpy as np
 
@@ -21,9 +22,10 @@ from config_parser import ConfigParser
 from spatial_augmenter import SpatialAugmenter
 
 class DataGenerator(object):
-    def __init__(self, label_mode=None, augment_counter=1):
+    def __init__(self, label_mode=None, augment_counter=0, folder_name="data"):
         self.label_mode = label_mode
         self.augment_counter = augment_counter
+        self.folder_name = folder_name
         self.augmenter = SpatialAugmenter()
 
     def generate_dataset(self, ignore=[], args=None):
@@ -31,15 +33,15 @@ class DataGenerator(object):
         # folder_name_train = "data/" + args.data + "/train/"
         # folder_name_unseen = "data/" + args.data + "/unseen/"
         # folder_name_unlabelled = "data/" + args.data + "/unlabelled/"
-        folder_name_train = "data/train/"
-        folder_name_unseen = "data/unseen/"
-        folder_name_unlabelled = "data/unlabelled/"
+        folder_name_train = osp.join(self.folder_name, "train")
+        folder_name_unseen = osp.join(self.folder_name, "unseen")
+        folder_name_unlabelled = osp.join(self.folder_name, "unlabelled")
         data_split = 0.8
         crop_size = 200
         data_dimensions = [crop_size, crop_size, 3]
 
-        seed = 0
-        np.random.seed(seed)
+        # seed = 0
+        # np.random.seed(seed)
 
         # config_parser = ConfigParser(os.path.join(args.config, "config.json"))
         # config_parser = ConfigParser(os.path.join("config", "config.json"))
@@ -75,14 +77,23 @@ class DataGenerator(object):
         if "train" not in ignore:
             for array_name in array_list_train:
                 pair_list = np.load(os.path.join(folder_name_train, array_name))
+
                 labels = list(pair_list['label'])
-                seed += 1
-                np.random.seed(seed)
+                # seed += 1
+                # np.random.seed(seed)
                 number_of_pairs = len(pair_list['branch_0'])
                 train_n = int(data_split * number_of_pairs)
                 test_n = number_of_pairs - train_n
                 train_indecies = np.random.choice(range(number_of_pairs), train_n, replace=False)
-                test_indecies = filter(lambda x : x not in train_indecies, range(number_of_pairs))
+                test_indecies = np.array(filter(lambda x : x not in train_indecies, range(number_of_pairs)))
+
+                # subsample the data for faster training cycle
+                # every_nth = 5
+                # train_indecies = train_indecies[::every_nth][:50]
+                # test_indecies = test_indecies[::every_nth][:50]
+                # train_n = len(train_indecies)
+                # test_n = len(test_indecies)
+
 
                 print("Processing TRAINING array {0}/{1} with {2} pairs".format(array_list_train.index(array_name) + 1, 
                                                                                   len(array_list_train), 
@@ -200,8 +211,8 @@ class DataGenerator(object):
             for array_name in array_list_unseen:
                 pair_list = np.load(os.path.join(folder_name_unseen, array_name))
                 
-                seed += 1
-                np.random.seed(seed)
+                # seed += 1
+                # np.random.seed(seed)
                 number_of_pairs = len(pair_list['branch_0'])
                 unseen_n = number_of_pairs                                     
 
