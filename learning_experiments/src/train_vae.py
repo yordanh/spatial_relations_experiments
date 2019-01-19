@@ -8,6 +8,7 @@ python_version  :2.7.16
 ==============================================================================
 """
 
+# Misc
 import argparse
 import os
 import cv2
@@ -19,7 +20,9 @@ matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import subprocess
 import shutil
+import json
 
+# Chaier
 import chainer
 from chainer import training
 from chainer.training import extensions
@@ -28,7 +31,7 @@ from chainer.backends.cuda import to_cpu
 import chainer.functions as F
 from chainer import serializers
 
-
+# Sibling Modules
 import net_200x200 as net
 import data_generator
 from config_parser import ConfigParser
@@ -51,22 +54,18 @@ def main():
                         help='Dimention of encoded vector')
     parser.add_argument('--batchsize', '-batch', type=int, default=16,
                         help='Learning minibatch size')
-    parser.add_argument('--data', '-d', default='dSprites',
-                        help='Name of the dataset to be used for experiments')
-    parser.add_argument('--model', '-m', default='conv',
-                        help='Convolutional or linear model')
     parser.add_argument('--beta', '-b', default=1,
                         help='Beta coefficient for the KL loss')
     parser.add_argument('--gamma', '-g', default=1,
                         help='Gamma coefficient for the classification loss')
-    parser.add_argument('--labels', '-l', default="composite", 
-                        help='Determined how to treat the labels for the different images')
     parser.add_argument('--alpha', '-a', default=1, 
                         help='Alpha coefficient for the reconstruction loss')
     parser.add_argument('--freq', '-f', default=20, 
                     help='Frequency at which snapshots of the model are saved.')
     parser.add_argument('--mode', default="supervised", 
                     help='Mode of training - weakly supervised or unsupervised')
+    parser.add_argument('--augment_counter', default=0, 
+                    help='Number ot times to augment the train data')
     args = parser.parse_args()
 
     print('\n###############################################')
@@ -75,12 +74,9 @@ def main():
     print('# Minibatch-size: \t{}'.format(args.batchsize))
     print('# Epochs Labelled: \t{}'.format(args.epoch_labelled))
     print('# Epochs Unabelled: \t{}'.format(args.epoch_unlabelled))
-    print('# Dataset: \t\t{}'.format(args.data))
-    print('# Model Architecture: \t{}'.format(args.model))
     print('# Beta: \t\t{}'.format(args.beta))
     print('# Gamma: \t\t{}'.format(args.gamma))
     print('# Frequency: \t\t{}'.format(args.freq))
-    print('# Trainign model: \t{}'.format(args.model))
     print('# Out Folder: \t\t{}'.format(args.out))
     print('###############################################\n')
 
@@ -100,7 +96,7 @@ def main():
     else:
         ignore = ["unseen", "unlabelled"]
 
-    generator = data_generator.DataGenerator()
+    generator = data_generator.DataGenerator(augment_counter=args.augment_counter)
     train_b0, train_b1, train_labels, train_concat, train_vectors, test_b0, test_b1, test_labels, test_concat, test_vectors, unseen_b0, unseen_b1,\
     unseen_labels, groups = generator.generate_dataset(ignore=ignore, args=args)
 
@@ -139,10 +135,10 @@ def main():
 
 
     # vs = model.get_latent(test_b0[:8], test_b0[:8])
-    # vs = model(test_b0[:8], test_b0[:8])
+    # vs = model(test_b0[:8], test_b1[:8])
     # import chainer.computational_graph as c
     # g = c.build_computational_graph(vs)
-    # with open('./file.dot', 'w') as o:
+    # with open('./result/file.dot', 'w') as o:
     #     o.write(g.dump())
     # exit()
 
@@ -163,29 +159,28 @@ def main():
     no_std = 1
 
     config_parser = ConfigParser(os.path.join(args.config, "config.json"))
-    # groups = config_parser.parse_groups()
     n_groups = len(groups.keys())
     
-    if args.mode == "supervised":
-        stats, model, optimizer, _ = training_loop(model=model, optimizer=optimizer, stats=stats, 
-                                                               epochs=args.epoch_labelled, train_iter=train_iter, 
-                                                               test_iter=test_iter, lf=lf, models_folder=models_folder, 
-                                                               mode="supervised", args=args)
+    stats, model, optimizer, _ = training_loop(model=model, optimizer=optimizer, stats=stats, 
+                                                           epochs=args.epoch_labelled, train_iter=train_iter, 
+                                                           test_iter=test_iter, lf=lf, models_folder=models_folder, 
+                                                           mode="supervised", args=args)
 
-        print("Save Model\n")
-        serializers.save_npz(os.path.join(models_folder, 'final.model'), model)
+    print("Save Model\n")
+    serializers.save_npz(os.path.join(models_folder, 'final.model'), model)
 
-        print("Save Optimizer\n")
-        serializers.save_npz(os.path.join(models_folder, 'final.state'), optimizer)
+    print("Save Optimizer\n")
+    serializers.save_npz(os.path.join(models_folder, 'final.state'), optimizer)
 
-        print("Clear Images from Last experiment\n")
-        clear_last_results(folder_name=args.out)
+    print("Clear Images from Last experiment\n")
+    clear_last_results(folder_name=args.out)
 
 ########################################
 ########### RESULTS ANALYSIS ###########
 ########################################
 
     model.to_cpu()
+    latent_stats = {str(key) : {} for key in groups.keys()}
 
     plot_loss_curves(stats=stats, args=args)
 
@@ -201,55 +196,87 @@ def main():
 
     output = {"gt_b0": gt_b0, "gt_b1": gt_b1, 'rec_b0': rec_b0, 'rec_b1': rec_b1}
     np.savez(os.path.join(args.out, "reconstruction_arrays/train" + ".npz"), **output)
+
+
+
+    exit()
     
+
+
     axis_ranges = [-15, 15]
-    # pairs = [(0,1), (0,2), (1,2)]
-    pairs = list(itertools.combinations(range(len(groups)), 2))
-    
-    # colors = {'left':'red', 'right':'green'}
-    # concept_groups = {0:['left', 'right'], 1:['behind', 'front'], 2:['perp', 'parallel']}
+    pairs = [(0,1)]
+    # pairs = list(itertools.combinations(range(len(groups)), 2))
+
     for group_key in groups:
+
+        tmp = {'mu': None, 'cov': None}
+
+        indecies = [i for i, x in enumerate(test_labels) if x in groups[group_key]]
+        filtered_data_b0 = test_b0.take(indecies, axis=0)
+        # filtered_data_b0 = filtered_data_b0[::len(filtered_data_b0) / 100 + 1]
+        filtered_data_b1 = test_b1.take(indecies, axis=0)
+        # filtered_data_b1 = filtered_data_b1[::len(filtered_data_b1) / 100 + 1]
+        
+        latent = model.get_latent(filtered_data_b0, filtered_data_b1).data
+        # latent = latent.reshape(latent.shape[:-1])
+        
+        tmp['mu'] = np.mean(latent, axis=1)
+        tmp['cov'] = np.cov(latent, rowvar=0)
+
+        print("Saving the latent stats for group: {0}\n".format(str(group_key)))
+        path = osp.join('result', 'stats', str(group_key) + '_' + 'stats.npz')
+        np.savez(path, **tmp)
+
+
         for label in groups[group_key]:
+
+            latent_stats[str(group_key)][label] = {'mu': None, 'std': None}
             
             print("Visualising label:\t{0}, Group:\t{1}".format(label, group_key))
 
-            indecies = [i for i, x in enumerate(train_labels) if x == label]
-            filtered_data_b0 = train_b0.take(indecies, axis=0)
-            filtered_data_b0 = filtered_data_b0[::len(filtered_data_b0) / 100 + 1]
-            filtered_data_b1 = train_b1.take(indecies, axis=0)
-            filtered_data_b1 = filtered_data_b1[::len(filtered_data_b1) / 100 + 1]
-            print(filtered_data_b0.shape)
+            # indecies = [i for i, x in enumerate(train_labels) if x == label]
+            # filtered_data_b0 = train_b0.take(indecies, axis=0)
+            # filtered_data_b0 = filtered_data_b0[::len(filtered_data_b0) / 100 + 1]
+            # filtered_data_b1 = train_b1.take(indecies, axis=0)
+            # filtered_data_b1 = filtered_data_b1[::len(filtered_data_b1) / 100 + 1]
+            # print(filtered_data_b0.shape)
 
-            latent = np.array(model.get_latent(filtered_data_b0, filtered_data_b1))
-            for pair in pairs:
-                plt.scatter(latent[pair[0], :], latent[pair[1], :], c='red', label=label, alpha=0.75)
-                plt.grid()
+            # latent = np.array(model.get_latent(filtered_data_b0, filtered_data_b1))
+            # for pair in pairs:
+            #     plt.scatter(latent[pair[0], :], latent[pair[1], :], c='red', label=label, alpha=0.75)
+            #     plt.grid()
 
-                # major axes
-                plt.plot([axis_ranges[0], axis_ranges[1]], [0,0], 'k')
-                plt.plot([0,0], [axis_ranges[0], axis_ranges[1]], 'k')
+            #     # major axes
+            #     plt.plot([axis_ranges[0], axis_ranges[1]], [0,0], 'k')
+            #     plt.plot([0,0], [axis_ranges[0], axis_ranges[1]], 'k')
 
-                # plt.xlim(axis_ranges[0], axis_ranges[1])
-                # plt.ylim(axis_ranges[0], axis_ranges[1])
+            #     # plt.xlim(axis_ranges[0], axis_ranges[1])
+            #     # plt.ylim(axis_ranges[0], axis_ranges[1])
 
-                plt.xlabel("Z_" + str(pair[0]))
-                plt.ylabel("Z_" + str(pair[1]))
+            #     plt.xlabel("Z_" + str(pair[0]))
+            #     plt.ylabel("Z_" + str(pair[1]))
                 
-                plt.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=14)
-                plt.savefig("result/scatter/train_group_" + str(group_key) + "_" + label + "_Z_" + str(pair[0]) + "_Z_" + str(pair[1]), bbox_inches="tight")
-                plt.close()
+            #     plt.legend(loc='upper left', bbox_to_anchor=(1, 1), fontsize=14)
+            #     plt.savefig("result/scatter/train_group_" + str(group_key) + "_" + label + "_Z_" + str(pair[0]) + "_Z_" + str(pair[1]), bbox_inches="tight")
+            #     plt.close()
 
 
             indecies = [i for i, x in enumerate(test_labels) if x == label]
             filtered_data_b0 = test_b0.take(indecies, axis=0)
-            filtered_data_b0 = filtered_data_b0[::len(filtered_data_b0) / 100 + 1]
+            # filtered_data_b0 = filtered_data_b0[::len(filtered_data_b0) / 100 + 1]
             filtered_data_b1 = test_b1.take(indecies, axis=0)
-            filtered_data_b1 = filtered_data_b1[::len(filtered_data_b1) / 100 + 1]
+            # filtered_data_b1 = filtered_data_b1[::len(filtered_data_b1) / 100 + 1]
             print(filtered_data_b0.shape)
 
-            latent = np.array(model.get_latent(filtered_data_b0, filtered_data_b1))
+            latent = model.get_latent(filtered_data_b0, filtered_data_b1).data
+            # latent = latent.reshape(latent.shape[:-1])
+
+            # calculate the latent_stats for the cluster corresponding to label
+            latent_stats[str(group_key)][label]['mu'] = np.mean(latent[group_key])
+            latent_stats[str(group_key)][label]['std'] = np.cov(latent[group_key])
+
             for pair in pairs:
-                plt.scatter(latent[pair[0], :], latent[pair[1], :], c='red', label=label, alpha=0.75)
+                plt.scatter(latent[:, pair[0]], latent[:, pair[1]], c='red', label=label, alpha=0.75)
                 plt.grid()
 
                 # major axes
@@ -266,14 +293,14 @@ def main():
                 plt.savefig("result/scatter/test_group_" + str(group_key) + "_" + label + "_Z_" + str(pair[0]) + "_Z_" + str(pair[1]), bbox_inches="tight")
                 plt.close()
 
+                print("Saving the latent stats for group: {0}, label: {1}\n".format(str(group_key), label))
+                path = osp.join('result', 'stats', str(group_key) + '_' + label + '_' + 'stats.npz')
+                np.savez(path, **latent_stats[str(group_key)][label])
 
-
-
-
-
-
-
-
+    # print("Saving the latent clusters' latent_stats\n")
+    # fileOut = open("result/scatter/latent_stats.json", "w")
+    # json.dump(latent_stats, fileOut)
+    # fileOut.close()
 
 
 
