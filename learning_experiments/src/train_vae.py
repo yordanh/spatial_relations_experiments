@@ -32,7 +32,7 @@ import chainer.functions as F
 from chainer import serializers
 
 # Sibling Modules
-import net_200x200 as net
+import net_100x100 as net
 import data_generator
 from config_parser import ConfigParser
 from utils import *
@@ -163,6 +163,7 @@ def main():
     optimizer = chainer.optimizers.Adam()
     # optimizer = chainer.optimizers.RMSprop()
     optimizer.setup(model)
+    optimizer.add_hook(chainer.optimizer_hooks.WeightDecay(0.0005))
 
     lf = model.get_loss_func()
     no_std = 1
@@ -209,12 +210,6 @@ def main():
 
     output = {"gt_b0": gt_b0, "gt_b1": gt_b1, 'rec_b0': rec_b0, 'rec_b1': rec_b1}
     np.savez(os.path.join(args.out, "reconstruction_arrays/train" + ".npz"), **output)
-
-
-
-    exit()
-    
-
 
     axis_ranges = [-15, 15]
     pairs = [(0,1)]
