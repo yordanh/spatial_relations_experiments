@@ -22,10 +22,11 @@ from config_parser import ConfigParser
 from spatial_augmenter import SpatialAugmenter
 
 class DataGenerator(object):
-    def __init__(self, label_mode=None, augment_counter=0, folder_name="data"):
+    def __init__(self, label_mode=None, augment_counter=0, folder_name="data", data_split=0.8):
         self.label_mode = label_mode
         self.augment_counter = augment_counter
         self.folder_name = folder_name
+        self.data_split = data_split
         self.augmenter = SpatialAugmenter()
 
     def generate_dataset(self, ignore=[], args=None):
@@ -36,8 +37,8 @@ class DataGenerator(object):
         folder_name_train = osp.join(self.folder_name, "train")
         folder_name_unseen = osp.join(self.folder_name, "unseen")
         folder_name_unlabelled = osp.join(self.folder_name, "unlabelled")
-        data_split = 0.8
-        crop_size = 200
+        # data_split = 0.999
+        crop_size = 100
         data_dimensions = [crop_size, crop_size, 3]
 
         # seed = 0
@@ -47,8 +48,10 @@ class DataGenerator(object):
         # config_parser = ConfigParser(os.path.join("config", "config.json"))
         # labels = config_parser.parse_labels()
         # groups = config_parser.parse_groups()
-
-        groups = {i : group.replace('.npz','').split('_')[:-1] for i,group in enumerate(sorted(os.listdir(folder_name_train)))}
+        
+        file_set = set(['_'.join(x.split('_')[:-1]) for x in sorted(os.listdir(folder_name_train)) if "unlabelled" not in x])
+        groups = {i : group.split('_') for i,group in enumerate(file_set)}
+        print(groups)
 
         train_b0 = []
         train_b1 = []
@@ -74,133 +77,173 @@ class DataGenerator(object):
         test_vectors = [[] for group in groups]
         test_masks = [[] for group in groups]
 
+        train_indecies_fixed_list = [[] for _ in range(len(os.listdir(folder_name_train)) / 3)]
+        test_indecies_fixed_list  = [[] for _ in range(len(os.listdir(folder_name_train)) / 3)]
+
         if "train" not in ignore:
             for array_name in array_list_train:
-                pair_list = np.load(os.path.join(folder_name_train, array_name))
+                if "unlabelled" not in array_name:
 
-                labels = list(pair_list['label'])
-                # seed += 1
-                # np.random.seed(seed)
-                number_of_pairs = len(pair_list['branch_0'])
-                train_n = int(data_split * number_of_pairs)
-                test_n = number_of_pairs - train_n
-                train_indecies = np.random.choice(range(number_of_pairs), train_n, replace=False)
-                test_indecies = np.array(filter(lambda x : x not in train_indecies, range(number_of_pairs)))
+                    array_index = int(array_name.split('_')[-1].replace('.npz', ''))
+                    pair_list = np.load(os.path.join(folder_name_train, array_name))
 
-                # subsample the data for faster training cycle
-                # every_nth = 5
-                # train_indecies = train_indecies[::every_nth][:50]
-                # test_indecies = test_indecies[::every_nth][:50]
-                # train_n = len(train_indecies)
-                # test_n = len(test_indecies)
+                    labels = list(pair_list['label'])
+                    # seed += 1
+                    # np.random.seed(seed)
+                    number_of_pairs = len(pair_list['branch_0'])
+                    train_n = int(self.data_split * number_of_pairs)
+                    test_n = number_of_pairs - train_n
+
+                    if train_indecies_fixed_list[array_index] == []:
+                        train_indecies_fixed_list[array_index] = np.random.choice(range(number_of_pairs), train_n, replace=False)
+                    train_indecies_fixed = train_indecies_fixed_list[array_index]
+
+                    if test_indecies_fixed_list[array_index] == []:
+                        test_indecies_fixed_list[array_index] = np.array(filter(lambda x : x not in train_indecies_fixed, range(number_of_pairs)))                    
+                    test_indecies_fixed = test_indecies_fixed_list[array_index]
+
+                    # subsample the data for faster training cycle
+                    # every_nth = 5
+                    # train_indecies_fixed = train_indecies_fixed[::every_nth][:200]
+                    # test_indecies_fixed = test_indecies_fixed[::every_nth][:200]
+                    # train_n = len(train_indecies_fixed)
+                    # test_n = len(test_indecies_fixed)
 
 
-                print("Processing TRAINING array {0}/{1} with {2} pairs".format(array_list_train.index(array_name) + 1, 
-                                                                                  len(array_list_train), 
-                                                                                  number_of_pairs))
+                    print("Processing TRAINING array {0} {1}/{2} with {3} pairs".format(array_name,
+                                                                                        array_list_train.index(array_name) + 1, 
+                                                                                        len(array_list_train), 
+                                                                                        number_of_pairs))
 
-                # remove _X.npz suffix from the name
-                array_name = array_name.split('_')[:-1]
-                array_name = '_'.join(array_name)
+                    # print(train_indecies_fixed)
+                    # print(test_indecies_fixed)
 
-                chunk_b0 = list(np.take(pair_list['branch_0'], train_indecies, axis=0))
-                chunk_b1 = list(np.take(pair_list['branch_1'], train_indecies, axis=0))
-                train_b0 += chunk_b0
-                train_b1 += chunk_b1
+                    # remove _X.npz suffix from the name
+                    array_name = array_name.split('_')[:-1]
+                    array_name = '_'.join(array_name)
 
-                vectors = list(np.take(pair_list['label'], train_indecies, axis=0))                      
-                chunk_labels = [array_name.split('_')[x] for x in vectors]
-                train_labels += chunk_labels
+                    chunk_b0 = list(np.take(pair_list['branch_0'], train_indecies_fixed, axis=0))
+                    chunk_b1 = list(np.take(pair_list['branch_1'], train_indecies_fixed, axis=0))
+                    train_b0 += chunk_b0
+                    train_b1 += chunk_b1
 
-                for _ in range(self.augment_counter):
-                    chunk_b0_aug, chunk_b1_aug = self.augmenter.augment(chunk_b0, chunk_b1)
-                    train_b0 += list(chunk_b0_aug)
-                    train_b1 += list(chunk_b1_aug)
+                    vectors = list(np.take(pair_list['label'], train_indecies_fixed, axis=0))                      
+                    chunk_labels = [array_name.split('_')[x] for x in vectors]
                     train_labels += chunk_labels
 
-                for i in groups:
-                    for _ in range(self.augment_counter + 1):
-                        label = filter(lambda x : x in groups[i], array_name.split('_'))
-                        if label != []:
-                            train_vectors[i] += vectors
-                            train_masks[i] += [1] * train_n
-                        else:
+                    for _ in range(self.augment_counter):
+                        chunk_b0_aug, chunk_b1_aug = self.augmenter.augment(chunk_b0, chunk_b1)
+                        train_b0 += list(chunk_b0_aug)
+                        train_b1 += list(chunk_b1_aug)
+                        train_labels += chunk_labels
+
+                    for i in groups:
+                        for _ in range(self.augment_counter + 1):
+                            label = filter(lambda x : x in groups[i], array_name.split('_'))
+                            if label != []:
+                                train_vectors[i] += vectors
+                                train_masks[i] += [1] * train_n
+                            else:
+                                label = 0
+                                train_vectors[i] += list(np.tile(label, (train_n)))
+                                train_masks[i] += [0] * train_n
+
+
+                    chunk_b0 = list(np.take(pair_list['branch_0'], test_indecies_fixed, axis=0))
+                    chunk_b1 = list(np.take(pair_list['branch_1'], test_indecies_fixed, axis=0))
+                    test_b0 += chunk_b0
+                    test_b1 += chunk_b1
+
+                    vectors = list(np.take(pair_list['label'], test_indecies_fixed, axis=0))                      
+                    chunk_labels = [array_name.split('_')[x] for x in vectors]
+                    test_labels += chunk_labels
+
+                    for _ in range(self.augment_counter):
+                        chunk_b0_aug, chunk_b1_aug = self.augmenter.augment(chunk_b0, chunk_b1)
+                        test_b0 += list(chunk_b0_aug)
+                        test_b1 += list(chunk_b1_aug)
+                        test_labels += chunk_labels
+
+                    for i in groups:
+                        for _ in range(self.augment_counter + 1):
+                            label = filter(lambda x : x in groups[i], array_name.split('_'))
+                            if label != []:
+                                test_vectors[i] += vectors
+                                test_masks[i] += [1] * test_n
+                            else:
+                                label = 0
+                                test_vectors[i] += list(np.tile(label, (test_n)))
+                                test_masks[i] += [0] * test_n
+                
+
+                else:
+                    pair_list = np.load(os.path.join(folder_name_train, array_name))
+
+                    labels = list(pair_list['label'])
+                    # seed += 1
+                    # np.random.seed(seed)
+                    number_of_pairs = len(pair_list['branch_0'])
+                    train_n = int(self.data_split * number_of_pairs)
+                    test_n = number_of_pairs - train_n
+                    train_indecies = np.random.choice(range(number_of_pairs), train_n, replace=False)
+                    test_indecies = np.array(filter(lambda x : x not in train_indecies, range(number_of_pairs)))
+
+                    # subsample the data for faster training cycle
+                    # every_nth = 5
+                    # train_indecies = train_indecies[::every_nth][:200]
+                    # test_indecies = test_indecies[::every_nth][:200]
+                    # train_n = len(train_indecies)
+                    # test_n = len(test_indecies)
+
+
+                    print("Processing TRAINING array {0} {1}/{2} with {3} pairs".format(array_name,
+                                                                                        array_list_train.index(array_name) + 1, 
+                                                                                        len(array_list_train), 
+                                                                                        number_of_pairs))
+
+
+                    chunk_b0 = list(np.take(pair_list['branch_0'], train_indecies, axis=0))
+                    chunk_b1 = list(np.take(pair_list['branch_1'], train_indecies, axis=0))
+                    train_b0 += chunk_b0
+                    train_b1 += chunk_b1
+
+                    # vectors = list(np.take(pair_list['label'], train_indecies, axis=0))                      
+                    chunk_labels = ["unlabelled" for _ in range(train_n)]
+                    train_labels += chunk_labels
+
+                    for _ in range(self.augment_counter):
+                        chunk_b0_aug, chunk_b1_aug = self.augmenter.augment(chunk_b0, chunk_b1)
+                        train_b0 += list(chunk_b0_aug)
+                        train_b1 += list(chunk_b1_aug)
+                        train_labels += chunk_labels
+
+                    for i in groups:
+                        for _ in range(self.augment_counter + 1):
                             label = 0
                             train_vectors[i] += list(np.tile(label, (train_n)))
                             train_masks[i] += [0] * train_n
 
 
-                chunk_b0 = list(np.take(pair_list['branch_0'], test_indecies, axis=0))
-                chunk_b1 = list(np.take(pair_list['branch_1'], test_indecies, axis=0))
-                test_b0 += chunk_b0
-                test_b1 += chunk_b1
+                    chunk_b0 = list(np.take(pair_list['branch_0'], test_indecies, axis=0))
+                    chunk_b1 = list(np.take(pair_list['branch_1'], test_indecies, axis=0))
+                    test_b0 += chunk_b0
+                    test_b1 += chunk_b1
 
-                vectors = list(np.take(pair_list['label'], test_indecies, axis=0))                      
-                chunk_labels = [array_name.split('_')[x] for x in vectors]
-                test_labels += chunk_labels
-
-                for _ in range(self.augment_counter):
-                    chunk_b0_aug, chunk_b1_aug = self.augmenter.augment(chunk_b0, chunk_b1)
-                    test_b0 += list(chunk_b0_aug)
-                    test_b1 += list(chunk_b1_aug)
+                    # vectors = list(np.take(pair_list['label'], test_indecies, axis=0))                      
+                    chunk_labels = ["unlabelled" for _ in range(test_n)]
                     test_labels += chunk_labels
 
-                for i in groups:
-                    for _ in range(self.augment_counter + 1):
-                        label = filter(lambda x : x in groups[i], array_name.split('_'))
-                        if label != []:
-                            test_vectors[i] += vectors
-                            test_masks[i] += [1] * test_n
-                        else:
+                    for _ in range(self.augment_counter):
+                        chunk_b0_aug, chunk_b1_aug = self.augmenter.augment(chunk_b0, chunk_b1)
+                        test_b0 += list(chunk_b0_aug)
+                        test_b1 += list(chunk_b1_aug)
+                        test_labels += chunk_labels
+
+                    for i in groups:
+                        for _ in range(self.augment_counter + 1):
                             label = 0
                             test_vectors[i] += list(np.tile(label, (test_n)))
                             test_masks[i] += [0] * test_n
-
-
-
-
-
-
-
-
-
-        # # unlabelled datapoints
-        # if os.path.exists(folder_name_unlabelled) and "unlabelled" not in ignore:
-        #     array_list_unlabelled = os.listdir(folder_name_unlabelled)
-        #     for array_name in array_list_unlabelled:
-        #         # pair_list = np.load(os.path.join("/home/yordan/pr2_ws/src/spatial_relations_experiments/learning_experiments/data/unlabelled/", array_name))
-        #         pair_list = np.load(os.path.join(folder_name_unlabelled, array_name))
-        #         seed += 1
-        #         np.random.seed(seed)
-        #         number_of_pairs = len(pair_list)
-        #         train_n = int(data_split * number_of_pairs)
-        #         test_n = number_of_pairs - train_n
-        #         train_indecies = np.random.choice(range(number_of_pairs), train_n, replace=False)
-        #         test_indecies = filter(lambda x : x not in train_indecies, range(number_of_pairs))
-
-        #         print("Processing UNLABELLED array_name {0}/{1} with {2} pairs".format(array_list_unlabelled.index(array_name) + 1, 
-        #                                                                             len(array_list_unlabelled), 
-        #                                                                             number_of_pairs))
-
-        #         train_b0 += list(np.take(pair_list['branch_0'], train_indecies, axis=0))
-        #         train_b1 += list(np.take(pair_list['branch_1'], train_indecies, axis=0))
-
-        #         train_labels += array_name.split('_')[:3] * train_n
-        #         train_masks += [0] * train_n
-
-        #         for i, group in enumerate(groups):
-        #             label = 0
-        #             train_vectors[i] += list(np.tile(label, (train_n)))
-
-        #         test_b0 += list(np.take(pair_list['branch_0'], test_indecies, axis=0))
-        #         test_b1 += list(np.take(pair_list['branch_1'], test_indecies, axis=0))
-
-        #         test_labels += array_name.split('_')[:3] * test_n
-        #         test_masks += [0] * test_n
-
-        #         for i, group in enumerate(groups):
-        #             label = 0
-        #             test_vectors[i] += list(np.tile(label, (test_n)))
 
 
 
@@ -249,12 +292,7 @@ class DataGenerator(object):
         # train = np.array(train, dtype=np.float32) / 255.
         
         # lens = [len(train_b0[i]) for i in range(len(train_b0))]
-
-
-
-        for i in range(len(train_b0)):
-            if len(train_b0[i]) != 200:
-                print(i, len(train_b0[i]))
+        
                 
         train_b0 = np.array(train_b0, dtype=np.float32)
         train_b1 = np.array(train_b1, dtype=np.float32)
