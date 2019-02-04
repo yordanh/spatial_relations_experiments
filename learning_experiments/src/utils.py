@@ -9,6 +9,7 @@ python_version  :2.7.14
 """
 
 import os
+import os.path as osp
 import numpy as np
 from scipy.stats import multivariate_normal
 from scipy.stats import entropy
@@ -57,15 +58,19 @@ def clear_last_results(folder_name=None):
     all_files = list(filter(lambda filename : '.' in filename, os.listdir(folder_name)))
     map(lambda x : os.remove(folder_name + x), all_files)
 
-    leftover_folders = list(filter(lambda filename : filename != "models", os.listdir(folder_name)))
-    map(lambda x : shutil.rmtree(folder_name + x), leftover_folders)
+    # subfolders = ["scatter", "reconstruction_arrays"]
+    # for subfolder in subfolders:
+	   #  map(lambda x : os.remove(osp.join(folder_name, subfolder, x)), os.listdir(osp.join(folder_name, subfolder)))
 
-    os.mkdir(folder_name + "gifs")
-    os.mkdir(folder_name + "gifs/manifold_gif")
-    os.mkdir(folder_name + "gifs/scatter_gif")
-    os.mkdir(folder_name + "scatter")
-    os.mkdir(folder_name + "eval")
-    os.mkdir(folder_name + "reconstruction_arrays")
+    # leftover_folders = list(filter(lambda filename : filename != "models", os.listdir(folder_name)))
+    # map(lambda x : shutil.rmtree(folder_name + x), leftover_folders)
+
+    # os.mkdir(folder_name + "gifs")
+    # os.mkdir(folder_name + "gifs/manifold_gif")
+    # os.mkdir(folder_name + "gifs/scatter_gif")
+    # os.mkdir(folder_name + "scatter")
+    # os.mkdir(folder_name + "eval")
+    # os.mkdir(folder_name + "reconstruction_arrays")
 
 
 # for a given set of example images, calculate their reconstructions
@@ -121,7 +126,7 @@ def plot_loss_curves(stats=None, args=None):
     plt.xlabel("Epoch #", fontsize=14)
     plt.ylabel("Loss", fontsize=14)
     plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=14)
-    plt.savefig(os.path.join(args.out + "losses"), bbox_inches="tight")
+    plt.savefig(os.path.join(args.out, "losses"), bbox_inches="tight")
     plt.close()
 
     # validation label loss
@@ -131,7 +136,7 @@ def plot_loss_curves(stats=None, args=None):
     plt.xlabel("Epoch #", fontsize=14)
     plt.ylabel("Loss", fontsize=14)
     plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=14)
-    plt.savefig(os.path.join(args.out + "label_loss"), bbox_inches="tight")
+    plt.savefig(os.path.join(args.out, "label_loss"), bbox_inches="tight")
     plt.close()
 
     # validation label accuracy
@@ -141,7 +146,7 @@ def plot_loss_curves(stats=None, args=None):
     plt.xlabel("Epoch #", fontsize=14)
     plt.ylabel("Loss", fontsize=14)
     plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=14)
-    plt.savefig(os.path.join(args.out + "valid_label_acc"), bbox_inches="tight")
+    plt.savefig(os.path.join(args.out, "valid_label_acc"), bbox_inches="tight")
     plt.close()
 
     # training label accuracy
