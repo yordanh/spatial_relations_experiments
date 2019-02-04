@@ -50,9 +50,9 @@ def main():
                         help='Number of epochs to learn only with labelled data')
     parser.add_argument('--epoch_unlabelled', '-u', default=100, type=int,
                     help='Number of epochs to learn with labelled and unlabelled data')
-    parser.add_argument('--dimz', '-z', default=4, type=int,
+    parser.add_argument('--dimz', '-z', default=8, type=int,
                         help='Dimention of encoded vector')
-    parser.add_argument('--batchsize', '-batch', type=int, default=16,
+    parser.add_argument('--batchsize', '-batch', type=int, default=32,
                         help='Learning minibatch size')
     parser.add_argument('--beta', '-b', default=1,
                         help='Beta coefficient for the KL loss')
@@ -60,13 +60,17 @@ def main():
                         help='Gamma coefficient for the classification loss')
     parser.add_argument('--alpha', '-a', default=1, 
                         help='Alpha coefficient for the reconstruction loss')
-    parser.add_argument('--freq', '-f', default=20, 
+    parser.add_argument('--freq', '-f', default=40, 
                     help='Frequency at which snapshots of the model are saved.')
     parser.add_argument('--mode', default="supervised", 
                     help='Mode of training - weakly supervised or unsupervised')
-    parser.add_argument('--augment_counter', default=0, 
+    parser.add_argument('--augment_counter', type=int, default=0, 
                     help='Number ot times to augment the train data')
+    parser.add_argument('--model', default="full", 
+                    help='Model to be trained')
     args = parser.parse_args()
+
+    args.out = args.out + args.model
 
     print('\n###############################################')
     print('# GPU: \t\t\t{}'.format(args.gpu))
@@ -81,7 +85,7 @@ def main():
     print('###############################################\n')
 
     stats = {'train_loss': [], 'train_accs': [], 'valid_loss': [], 'valid_rec_loss': [], 'valid_label_loss': [],\
-         'valid_label_acc': [], 'valid_kl': []}
+         'valid_label_acc': [], 'valid_kl': [], 'train_kl': []}
 
     models_folder = os.path.join(args.out, "models")
     # manifold_gif = os.path.join(args.out, "gifs/manifold_gif")
@@ -129,9 +133,14 @@ def main():
     test_iter = chainer.iterators.SerialIterator(test_concat, args.batchsize,
                                                  repeat=False, shuffle=False)
 
-    # Prepare VAE model, defined in net.py
-    model = net.Conv_Siam_VAE(train_b0.shape[1], train_b1.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
-
+    if args.model == "full" or args.model == "var_classifier":
+        model = net.Conv_Siam_VAE(train_b0.shape[1], train_b1.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
+    elif args.model == "classifier":
+        model = net.Conv_Siam_Classifier(train_b0.shape[1], train_b1.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
+    elif args.model == "beta_vae":
+        model = net.Conv_Siam_BetaVAE(train_b0.shape[1], train_b1.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
+    elif args.model == "autoencoder":
+        model = net.Conv_Siam_AE(train_b0.shape[1], train_b1.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
 
 
     # vs = model.get_latent(test_b0[:8], test_b0[:8])
@@ -172,8 +181,10 @@ def main():
     print("Save Optimizer\n")
     serializers.save_npz(os.path.join(models_folder, 'final.state'), optimizer)
 
-    print("Clear Images from Last experiment\n")
-    clear_last_results(folder_name=args.out)
+    exit()  
+
+    # print("Clear Images from Last experiment\n")
+    # clear_last_results(folder_name=args.out)
 
 ########################################
 ########### RESULTS ANALYSIS ###########
@@ -182,8 +193,10 @@ def main():
     model.to_cpu()
     latent_stats = {str(key) : {} for key in groups.keys()}
 
-    plot_loss_curves(stats=stats, args=args)
+    # print("Plottong Loss Curves\n")
+    # plot_loss_curves(stats=stats, args=args)
 
+    print("Saving Reconstruction Arrays\n")
     no_images = 10
     train_ind = np.linspace(0, len(train_b0) - 1, no_images, dtype=int)
     result = model(train_b0[train_ind], train_b1[train_ind])
@@ -309,9 +322,9 @@ def training_loop(model=None, optimizer=None, stats=None, epochs=None, train_ite
 
     train_losses = []
     train_accs = []
+    train_kl = []
 
     while train_iter.epoch < epochs:
-
         # ------------ One epoch of the training loop ------------
         # ---------- One iteration of the training loop ----------
         train_batch = train_iter.next()
@@ -319,8 +332,9 @@ def training_loop(model=None, optimizer=None, stats=None, epochs=None, train_ite
         image_train = concat_examples(train_batch, 0)
 
         # Calculate the loss with softmax_cross_entropy
-        train_loss, train_rec_loss, train_label_loss, acc, _, = model.get_loss_func()(image_train)
+        train_loss, train_rec_loss, train_label_loss, acc, t_kl, = model.get_loss_func()(image_train)
         train_losses.append(train_loss.array)
+        train_kl.append(t_kl.array)
         if type(acc) != int:
             train_accs.append(acc.array)
         model.cleargrads()
@@ -376,9 +390,10 @@ def training_loop(model=None, optimizer=None, stats=None, epochs=None, train_ite
             stats['valid_label_acc'].append(np.mean(to_cpu(test_accs)))
 
             stats['valid_kl'].append(np.mean(to_cpu(test_kl)))
+            stats['train_kl'].append(np.mean(to_cpu(train_kl)))
     
             print(("Epoch: {0} \t T_Loss: {1} \t V_Loss: {2} \t V_Rec_Loss: {3} \t V_Label_Loss: {4} \t " + \
-                  "V_KL: {6} \t T_Acc: {7} \t V_Acc: {5}").format(train_iter.epoch, 
+                  "T_KL: {6} \t V_KL: {7} \t T_Acc: {8} \t V_Acc: {5}").format(train_iter.epoch, 
                                                                 round(stats['train_loss'][-1], 2),
                                                                 round(stats['valid_loss'][-1], 2),
                                                                 round(stats['valid_rec_loss'][-1], 2),
@@ -386,10 +401,12 @@ def training_loop(model=None, optimizer=None, stats=None, epochs=None, train_ite
                                                                 round(stats['valid_label_acc'][-1], 2),
                                                                 # round(stats['valid_label_acc_1'][-1], 2),
                                                                 # round(stats['valid_label_acc_2'][-1], 2),
+                                                                round(stats['train_kl'][-1], 2),
                                                                 round(stats['valid_kl'][-1], 2),
                                                                 round(stats['train_accs'][-1], 2)))
             train_losses = []
             train_accs = []
+            train_kl = []
     return stats, model, optimizer, epochs
 
 

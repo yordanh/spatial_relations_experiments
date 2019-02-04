@@ -279,7 +279,7 @@ def eval_unseen_time(data, model, folder_name=".", pairs=None):
 
 	axis_ranges = [-20, 20]
 	# pairs = [(0,1), (0,2), (1,2)]
-	pairs = [(2,3)]
+	pairs = [(0,1), (2,3)]
 	npz_size = 50
 	npz_files = 4
 
@@ -397,7 +397,7 @@ def eval_unseen_time(data, model, folder_name=".", pairs=None):
 			ax.set_xlim(axis_ranges[0], axis_ranges[1])
 			ax.set_ylim(axis_ranges[0], axis_ranges[1])
 		
-		plt.savefig(osp.join(folder_name, "npz_" + str(k) + "_Z_" + str(pair[0]) + "_Z_" + str(pair[1])), bbox_inches="tight")
+		# plt.savefig(osp.join(folder_name, "npz_" + str(k) + "_Z_" + str(pair[0]) + "_Z_" + str(pair[1])), bbox_inches="tight")
 		# plt.close()
 
 		plt.show()

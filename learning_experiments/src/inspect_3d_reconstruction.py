@@ -145,5 +145,5 @@ def inspect_grayscale(args):
 	# 			cv2.waitKey(0)
 
 if __name__ == "__main__":
-	# inspect_3d(args)
-	inspect_grayscale(args)
+	inspect_3d(args)
+	# inspect_grayscale(args)
