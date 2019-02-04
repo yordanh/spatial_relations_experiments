@@ -113,16 +113,23 @@ venv.bak/
 *.model
 *.state
 
+# ignore locally-installed dependencies
 chainer-mask-rcnn/
+chainerrl
 
+# ignore models used for inference
 maskrcnn_model/
 
+# ignore config files
 *.json
 *.json~
 
+# ignore graph information (chainer) documents
 *.dot
 
+# ignore policy-training-related results
 result*
 
+# ignore pr2 dependencies for picknplace and talking
 pr2_picknplace*
 pr2_head*
