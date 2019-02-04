@@ -22,6 +22,7 @@ standard_library.install_aliases()  # NOQA
 import argparse
 import logging
 import os
+import os.path as osp
 
 import chainer
 from chainer import functions as F
@@ -32,8 +33,8 @@ import numpy as np
 
 import chainerrl
 
-from env import PR2Env
-
+# from env import PR2Env
+from env_virtual_embed import PR2Env
 
 def main():
 
@@ -44,12 +45,12 @@ def main():
                         help='Gym Env ID')
     parser.add_argument('--seed', type=int, default=0,
                         help='Random seed [0, 2 ** 32)')
-    parser.add_argument('--outdir', type=str, default='results',
+    parser.add_argument('--outdir', type=str, default='result_mock_embed',
                         help='Directory path to save output files.'
                              ' If it does not exist, it will be created.')
-    parser.add_argument('--steps', type=int, default=10 ** 6,
+    parser.add_argument('--steps', type=int, default=1500,
                         help='Total time steps for training.')
-    parser.add_argument('--eval-interval', type=int, default=10000,
+    parser.add_argument('--eval-interval', type=int, default=1500,
                         help='Interval between evaluation phases in steps.')
     parser.add_argument('--eval-n-runs', type=int, default=10,
                         help='Number of episodes ran in an evaluation phase')
@@ -60,25 +61,33 @@ def main():
     parser.add_argument('--load', type=str, default='',
                         help='Directory path to load a saved agent data from'
                              ' if it is a non-empty string.')
-    parser.add_argument('--trpo-update-interval', type=int, default=5000,
+    parser.add_argument('--trpo-update-interval', type=int, default=60,
                         help='Interval steps of TRPO iterations.')
     parser.add_argument('--logger-level', type=int, default=logging.INFO,
                         help='Level of the root logger.')
     parser.add_argument('--monitor', action='store_true',
                         help='Monitor the env by gym.wrappers.Monitor.'
                              ' Videos and additional log will be saved.')
-
+    
     parser.add_argument('--cutoff', default=1000, type=int, 
                         help='Number of frames to be captured')
     parser.add_argument('--scene', '-sc', default='100', 
                         help='Index for a scene/setup')
     parser.add_argument('--mode', '-m', default='gather',
                         help='Whether we are gathering data or learning')
+    parser.add_argument('--state_type', default='eef',
+                        help='The type of state space used by the agent - [eef, eff_embed]')
+    parser.add_argument('--reward_type', default='discrete',
+                        help='The type of reward used by the agent - [discrete, embed]')
+    parser.add_argument('--active_arm', default="right_arm", type=str,
+                        help='The arm which will be actucated - [right_arm, left_arm]')
+    parser.add_argument('--task_name', default='right',
+                        help='The name for the spatial prep for which a policy is learned - [left, right, front, behind]')
     parser.add_argument('--verbose', type=int, default=0,
                         help='Verbose logging')
 
     args = parser.parse_args()
-
+    args.outdir = osp.join(args.outdir, args.state_type + '_' + args.reward_type, args.active_arm + '_' + args.task_name)
     logging.basicConfig(level=args.logger_level)
 
     # Set random seed
@@ -86,9 +95,20 @@ def main():
 
     args.outdir = chainerrl.experiments.prepare_output_dir(args, args.outdir)
 
-    env = PR2Env(args=args)
+    def make_env(args):
+        env = PR2Env(args=args, episode_len=15, goal_spec=['behind', 'right'], steps=args.steps)
+        # Use different random seeds for train and test envs
+        env_seed = 2 ** 32 - args.seed
+        env.seed(env_seed)
+        # Cast observations to float32 because our model uses float32
+        env = chainerrl.wrappers.CastObservationToFloat32(env)
+        if args.monitor:
+            env = gym.wrappers.Monitor(env, args.outdir)
+        if args.render:
+            env = chainerrl.wrappers.Render(env)
+        return env
+
     env = make_env(args)
-    env = chainerrl.wrappers.CastObservationToFloat32(env)
     
     timestep_limit = 200
     obs_space = env.observation_space
@@ -109,11 +129,23 @@ to numpy.ndarray of numpy.float32.""")  # NOQA
 
     if isinstance(action_space, gym.spaces.Box):
         # Use a Gaussian policy for continuous action spaces
+        # policy = \
+        #     chainerrl.policies.FCGaussianPolicyWithStateIndependentCovariance(
+        #         obs_space.low.size,
+        #         action_space.low.size,
+        #         n_hidden_channels=64,
+        #         n_hidden_layers=2,
+        #         mean_wscale=0.01,
+        #         nonlinearity=F.tanh,
+        #         var_type='diagonal',
+        #         var_func=lambda x: F.exp(2 * x),  # Parameterize log std
+        #         var_param_init=0,  # log std = 0 => std = 1
+        #     )
         policy = \
             chainerrl.policies.FCGaussianPolicyWithStateIndependentCovariance(
                 obs_space.low.size,
                 action_space.low.size,
-                n_hidden_channels=64,
+                n_hidden_channels=32,
                 n_hidden_layers=2,
                 mean_wscale=0.01,
                 nonlinearity=F.tanh,
@@ -126,7 +158,7 @@ to numpy.ndarray of numpy.float32.""")  # NOQA
         policy = chainerrl.policies.FCSoftmaxPolicy(
             obs_space.low.size,
             action_space.n,
-            n_hidden_channels=64,
+            n_hidden_channels=32,
             n_hidden_layers=2,
             last_wscale=0.01,
             nonlinearity=F.tanh,
@@ -157,13 +189,13 @@ TRPO only supports gym.spaces.Box or gym.spaces.Discrete action spaces.""")  # N
     vf_opt.setup(vf)
 
     # Draw the computational graph and save it in the output directory.
-    fake_obs = chainer.Variable(
-        policy.xp.zeros_like(obs_space.low, dtype=np.float32)[None],
-        name='observation')
-    chainerrl.misc.draw_computational_graph(
-        [policy(fake_obs)], os.path.join(args.outdir, 'policy'))
-    chainerrl.misc.draw_computational_graph(
-        [vf(fake_obs)], os.path.join(args.outdir, 'vf'))
+    # fake_obs = chainer.Variable(
+    #     policy.xp.zeros_like(obs_space.low, dtype=np.float32)[None],
+    #     name='observation')
+    # chainerrl.misc.draw_computational_graph(
+    #     [policy(fake_obs)], os.path.join(args.outdir, 'policy'))
+    # chainerrl.misc.draw_computational_graph(
+    #     [vf(fake_obs)], os.path.join(args.outdir, 'vf'))
 
     # Hyperparameters in http://arxiv.org/abs/1709.06560
     agent = chainerrl.agents.TRPO(
@@ -184,11 +216,12 @@ TRPO only supports gym.spaces.Box or gym.spaces.Discrete action spaces.""")  # N
         agent.load(args.load)
 
     if args.demo:
-        env = make_env(test=True)
+        env = make_env(args)
         eval_stats = chainerrl.experiments.eval_performance(
             env=env,
             agent=agent,
-            n_runs=args.eval_n_runs,
+            n_steps=None,
+            n_episodes=args.eval_n_runs,
             max_episode_len=timestep_limit)
         print('n_runs: {} mean: {} median: {} stdev {}'.format(
             args.eval_n_runs, eval_stats['mean'], eval_stats['median'],
@@ -198,14 +231,18 @@ TRPO only supports gym.spaces.Box or gym.spaces.Discrete action spaces.""")  # N
         chainerrl.experiments.train_agent_with_evaluation(
             agent=agent,
             env=env,
-            eval_env=make_env(args),
+            eval_env=env,
             outdir=args.outdir,
             steps=args.steps,
-            eval_n_runs=args.eval_n_runs,
+            eval_n_steps=None,
+            eval_n_episodes=args.eval_n_runs,
             eval_interval=args.eval_interval,
-            max_episode_len=timestep_limit,
+            train_max_episode_len=timestep_limit,
         )
 
+    print('#############################')
+    print('##### FINISHED TRAINING #####')
+    print('#############################')
 
 if __name__ == '__main__':
     main()

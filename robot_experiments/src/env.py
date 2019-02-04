@@ -29,10 +29,12 @@ import math
 import gym.spaces
 import matplotlib.pyplot as plt
 
-BASE_DIR = '/home/yordan/spatial_relations_experiments/'
+# BASE_DIR = '/home/yordan/spatial_relations_experiments/'
+BASE_DIR = '/home/yordan/pr2_ws/src/spatial_relations_experiments/'
 KINECT_DIR = osp.join(BASE_DIR, 'kinect_processor')
 LEARNING_DIR = osp.join(BASE_DIR, 'learning_experiments')
 ROBOT_DIR = osp.join(BASE_DIR, 'robot_experiments')
+RESULT_DIR = osp.join(LEARNING_DIR, 'result/full')
 
 sys.path.insert(0, osp.join(KINECT_DIR, 'src'))
 sys.path.insert(0, osp.join(LEARNING_DIR, 'src'))
@@ -41,7 +43,7 @@ sys.path.insert(0, osp.join(ROBOT_DIR, 'src'))
 # Sibling Modules
 from kinect_processor import Kinect_Data_Processor
 from maskrcnn_object_segmentor import Object_Segmentor
-from net_200x200 import Conv_Siam_VAE
+from net_100x100 import Conv_Siam_VAE
 from delta_pose import PR2RobotController
 
 
@@ -49,11 +51,18 @@ from delta_pose import PR2RobotController
 class PR2Env(gym.Env):
     """Gym-like environment that interfaces the learning algorithm with the physical robot """
 
-    def __init__(self, args=None, goal_spec=[], episode_len=10):
+    def __init__(self, args=None, goal_spec=None, objects=['green_cube', 'blue_die'], episode_len=None, group_n=None, steps=None):
 
         self.args = args
         self.step_counter = 0
         self.episode_len = episode_len
+        self.objects = objects
+        self.b0 = None
+        self.b1 = None
+        self.last_s = None
+        self.training_stats = [[]]
+        self.steps = steps
+        self.update_both = True
 
         if self.args.render:
             fig = plt.figure()
@@ -63,169 +72,237 @@ class PR2Env(gym.Env):
             self.ax.grid()
 
             # major axes
-            axis_ranges = [-10, 10]
+            axis_ranges = [-5, 5]
             self.ax.plot([axis_ranges[0], axis_ranges[1]], [0,0], 'k')
             self.ax.plot([0,0], [axis_ranges[0], axis_ranges[1]], 'k')
-            self.ax.set_xlim(axis_ranges[0], axis_ranges[1])
-            self.ax.set_ylim(axis_ranges[0], axis_ranges[1])
+            # self.ax.set_xlim(axis_ranges[0], axis_ranges[1])
+            # self.ax.set_ylim(axis_ranges[0], axis_ranges[1])
             
             # color map for visually encoding time
             self.cmap = plt.cm.get_cmap('cool')
 
-        # Create action space
-        self.action_space_size = 6
-        low = np.ones((self.action_space_size)) * -1
-        high = np.ones((self.action_space_size))
-        self.action_space = gym.spaces.Box(low, high, dtype=np.float32)
-
-         # Create observation space
-        self.observation_space_size = 10
-        low = np.ones((self.observation_space_size)) * -30
-        high = np.ones((self.observation_space_size)) * 30
-        self.observation_space = gym.spaces.Box(low, high, dtype=np.float32)
-
-
         # Init all necessary modules for the Kinect processing pipeline
-        self.k_processor = Kinect_Data_Processor(debug=True, args=args)
+        self.k_processor = Kinect_Data_Processor(debug=True, args=args, mode="learning")
         self.segmentor = Object_Segmentor(verbose=False, args=args, mode="robot")
-        self.segmentor.load_model(folder_name=osp.join(KINECT_DIR, 'maskrcnn_model'), gpu_id=1)
+        self.segmentor.load_model(folder_name=osp.join(KINECT_DIR, 'maskrcnn_model'), gpu_id=args.gpu)
 
         # TODO
         # read the groups and the group-related statistics resulting from the
         # embedding learning experiments
         groups = {0: ['front', 'behind'], 1: ['left', 'right']}
         self.embedding_model = Conv_Siam_VAE(3, 3, n_latent=8, groups=groups)
-        # serializers.load_npz(osp.join(LEARNING_DIR, 'result_good_post_fix/models/final.model'), self.embedding_model)
-        serializers.load_npz(osp.join(LEARNING_DIR, 'result_good_post_fix/models/final.model'), self.embedding_model)
+        serializers.load_npz(osp.join(RESULT_DIR, 'models/final.model'), self.embedding_model)
+        self.embedding_model.to_cpu()
         
         # process the incoming Kinect frames to produce a Transformed Point Cloud
         # runs in a separate thread
         self.k_processor.async_run()
 
+        # Create action space
+        self.action_space_size = 2
+        low = np.ones((self.action_space_size)) * -1
+        high = np.ones((self.action_space_size))
+        self.action_space = gym.spaces.Box(low, high, dtype=np.float32)
+
+         # Create observation space
+        if self.args.state_type == "eef":
+            self.observation_space_size = 4
+        elif self.args.state_type == "embed":
+            self.observation_space_size = 4
+
+        low = np.ones((self.observation_space_size)) * -1
+        high = np.ones((self.observation_space_size)) * 1
+        self.observation_space = gym.spaces.Box(low, high, dtype=np.float32)
+
         # TODO
         # calculate a goal embedding conditioned on the input goal_spec
         # TEMPORARILY sample a random goal vector
-        self.goal_em = np.random.uniform(low=-5, high=5, size=2)
+        self.goal_spec = goal_spec
         self.spec_vector = self.generate_spec_vector()
 
+        # SPEC = ['right']
+        self.goal_em = np.zeros(2)
+        # self.goal_em[0] = np.random.uniform(low=-2, high=2, size=1)
+        # self.goal_em[1] = np.random.uniform(low=-2, high=-0.5, size=1)
+        self.goal_em = np.array([1, -1])
+
+        print(self.args.active_arm)
         # init the robot controller
-        self.pr2 = PR2RobotController('right_arm')
+        self.pr2 = PR2RobotController(str(self.args.active_arm))
+        # self.pr2 = PR2RobotController('right_arm')
+
+        self.ref_object_posit = np.array([0.55, 0])
+        # self.ref_object_posit = np.array([0.65, -0.1])
+
+        # behind, right
+        self.euclid_goal_posit = self.ref_object_posit + np.array([0.15, -0.15])
+
+
+    def sample_goal_em(self):
+        
+        for index, entry in enumerate(self.spec_vector):
+            if entry == 0:
+                self.goal_em[index] = np.random.uniform(low=-2, high=2, size=1)
 
 
     def get_embedding(self):
-        # get latest Transformed Poing Cloud and segment it
-        # k_processor runs in a separate thread
-        (xyz, bgr) = self.k_processor.output[-1]
-        self.segmentor.load_processed_frame([xyz, bgr])
-        self.segmentor.process_data()
 
-        # embed the segmented Point Cloud
-        # !! swap the axes for the object PCs before feeding into the model
-        b0 = self.segmentor.output[0]['green_cube']
-        b1 = self.segmentor.output[0]['red_cube']
-        
-
-
-
-
-        # every_n = 15
-        # fig = plt.figure(figsize=(8,8))
-        # ax = fig.add_subplot(1, 1, 1, projection='3d')
-
-        # xs = b0[..., 0][::every_n]
-        # ys = b0[..., 1][::every_n]
-        # zs = b0[..., 2][::every_n]
-        # ax.scatter(xs, ys, zs, c='r', alpha=0.5)
-
-        # xs = b1[..., 0][::every_n]
-        # ys = b1[..., 1][::every_n]
-        # zs = b1[..., 2][::every_n]
-        # ax.scatter(xs, ys, zs, c='c', alpha=0.1)
-
-        # ax.xaxis.set_major_locator(plt.MaxNLocator(2))
-        # ax.yaxis.set_major_locator(plt.MaxNLocator(2))
-        # ax.zaxis.set_major_locator(plt.MaxNLocator(2))
-
-        # ax.set_xlabel('Z0/X', fontweight="bold")
-        # ax.set_ylabel('Z1/Y', fontweight="bold")
-        # ax.set_zlabel('Z2/Z', fontweight="bold")
-
-
-
-
-        b0 = b0[np.newaxis, :]
+        b0 = self.b0[np.newaxis, :]
         b0 = np.swapaxes(b0, 1, 3).astype(np.float32)
-        b1 = b1[np.newaxis, :]
+        b1 = self.b1[np.newaxis, :]
         b1 = np.swapaxes(b1, 1, 3).astype(np.float32)
-        embedding = self.embedding_model.get_latent(b0, b1).data[0]
-        print(embedding)
-        # embedding = np.array([x.data for x in embedding]).astype(np.float32)
-
-        # plt.show()
+        embedding, _ = self.embedding_model.get_latent_pred(b0, b1)
+        embedding = embedding.data[0]
 
         return embedding
 
 
-    def get_state(self, target_frame="base_link", ee_frame="/r_gripper_r_finger_tip_link"):
-        # return obs vector - [x, y, z, xr, yr, zr, obs_em, goal_em]
-        self.k_processor.tf_listener.waitForTransform(target_frame, ee_frame, rospy.Time(), rospy.Duration(4.0))
-        position, quaternion = self.k_processor.tf_listener.lookupTransform(target_frame, ee_frame, rospy.Duration(0))
-        orientation = euler_from_quaternion (quaternion)
+    def get_state(self, target_frame="base_link"):
+        # return obs vector - [x, y, z, xr, yr, zr, <obs_em>, <goal_em>] * 2 (for both arms)
+        # the embeddings are optional depending on self.args.state_type
+        self.k_processor.tf_listener.waitForTransform(target_frame, "/r_gripper_r_finger_tip_link", rospy.Time(), rospy.Duration(4.0))
+        position_r, quaternion_r = self.k_processor.tf_listener.lookupTransform(target_frame, "/r_gripper_r_finger_tip_link", rospy.Duration(0))
+        orientation_r = euler_from_quaternion (quaternion_r)
 
-        obs_em = self.get_embedding()
-        self.obs_em = obs_em
+        # self.k_processor.tf_listener.waitForTransform(target_frame, "/l_gripper_l_finger_tip_link", rospy.Time(), rospy.Duration(4.0))
+        # position_l, quaternion_l = self.k_processor.tf_listener.lookupTransform(target_frame, "/l_gripper_l_finger_tip_link", rospy.Duration(0))
+        # orientation_l = euler_from_quaternion (quaternion_l)
 
-        return np.concatenate((position, orientation, obs_em.flatten(), self.goal_em.flatten())).astype(np.float32)
+        if self.args.state_type == "eef":
+            # result = np.concatenate((position_l, orientation_l, position_r, orientation_r))
+            result = np.concatenate((position_r[:2], self.ref_object_posit))
+        
+        elif self.args.state_type == "embed":
+            self.obs_em = self.get_embedding()
+
+            print("Obs Em -> {0}".format(self.obs_em))
+            print("Goal Em -> {0}".format(self.goal_em))
+
+            # result = np.concatenate((position_l, orientation_l, position_r, orientation_r, self.obs_em.flatten(), self.goal_em.flatten()))
+            # result = np.concatenate((position_r[:2], orientation_r, self.obs_em.flatten(), self.goal_em.flatten()))
+            result = np.concatenate((self.obs_em.flatten(), self.goal_em.flatten()))
+
+        return result.flatten()
 
 
     # return the reward, given a goal embedding and an observation embedding
     # we get highest reward when the two vectors are the same
-    def get_reward(self, goal_em=None, obs_em=None, scaling_factor=1):
-        cosine_sim = np.dot(goal_em, obs_em) / (np.linalg.norm(goal_em) * np.linalg.norm(obs_em))
-        magnitude_diff = abs(np.linalg.norm(goal_em) - np.linalg.norm(obs_em))
+    def get_reward(self, scaling_factor=1):
+        
+        if self.args.reward_type == "euclid":
+            self.k_processor.tf_listener.waitForTransform("base_link", "/r_gripper_r_finger_tip_link", rospy.Time(), rospy.Duration(4.0))
+            position_r, _ = self.k_processor.tf_listener.lookupTransform("base_link", "/r_gripper_r_finger_tip_link", rospy.Duration(0))
 
-        return scaling_factor * (cosine_sim - magnitude_diff)
+            result =  - np.linalg.norm(position_r[:2] - self.euclid_goal_posit) / 0.5
+
+            return result
+
+        elif self.args.reward_type == "discrete":
+            result = int(self.check_spec_satisfaction())
+            if result == 0:
+                result = -1
+
+            result = scaling_factor * result
+
+        elif self.args.reward_type == "embed":
+            
+            self.obs_em = self.get_embedding()
+
+            cosine_sim = np.dot(self.goal_em, self.obs_em) / (np.linalg.norm(self.goal_em) * np.linalg.norm(self.obs_em))
+            magnitude_diff = abs(np.linalg.norm(self.goal_em) - np.linalg.norm(self.obs_em))
+            # result = scaling_factor * (cosine_sim - magnitude_diff)
+            result = scaling_factor * (cosine_sim)
+
+        return result
 
 
     # given an action, execute it on the robot and return (next state, reward)
     def step(self, a):
-
         # do action a (sent to robot and wait)
-        (delta_t, delta_rpy) = a
-        self.pr2.move_delta_t_rpy(delta_t, delta_rpy)
-        # self.pr2.move_delta_t_rpy(np.zeros(3), np.zeros(3))
+        delta_t = np.zeros(3)
+        delta_t[0] = a[0] / 25.
+        delta_t[1] = a[1] / 25.
+
+        # delta_rpy = a[2:] / 10
+        delta_rpy = np.zeros(3)
+        action_success = self.pr2.move_delta_t_rpy(delta_t, delta_rpy)
+        self.step_counter += 1
+               
+        done = False
+        spec_satisfaction = None
+
+        done = self.update_pc()# or not action_success
 
         s = self.get_state()
-        r = self.get_reward(goal_em=s[-2], obs_em=s[-1])
+        r = self.get_reward()
 
-        done = False
+
+        if done:
+            print("STEP, Done: {0}\tSpec Sat: {1}\tR: {2}".format(done, False, 0))
+
+            r = 0
+
+            self.training_stats[-1].append(r)
+            output = {"stats" : self.training_stats, "episodes_n" : self.steps / self.episode_len}
+            np.savez(os.path.join(self.args.outdir, "training_stats.npz"), **output)
+            self.training_stats.append([])
+
+            return (self.last_s, r, done, {'spec_satisfaction': False, 'needs_reset': True})
+
+        
+        self.last_s = s
+
+        print("STEP {3}, Done: {0}\tSpec Sat: {1}\tR: {2}".format(done, spec_satisfaction, r, self.step_counter))
+        self.training_stats[-1].append(r)
+
 
         if self.step_counter >= self.episode_len:
-            done = self.check_spec_satisfaction()
-        else:
-            self.step_counter += 1
+            
+            output = {"stats" : self.training_stats, "episodes_n" : self.steps / self.episode_len}
+            np.savez(os.path.join(self.args.outdir, "training_stats.npz"), **output)
+            self.training_stats.append([])
+            done = True
+            spec_satisfaction = self.check_spec_satisfaction()
 
-        return (s.flatten().astype(np.float32), r, done, None)
+
+        return (s, r, done, {'spec_satisfaction': spec_satisfaction, 'needs_reset': done})
 
 
     def reset(self):
+        print('\n##### RESET #####')
+
+        # self.sample_goal_em()
+
         self.pr2.reset_pose()
+        self.last_s = np.zeros(self.observation_space_size)
         self.step_counter = 0
-        time.sleep(3)
+        # time.sleep(2)
+        needs_reset = self.update_pc(update_both=self.update_both)
 
-        return self.get_state().flatten().astype(np.float32)
+        while needs_reset:
+            self.pr2.reset_pose()
+            self.last_s = np.zeros(self.observation_space_size)
+            self.step_counter = 0
+            # time.sleep(2)
+            needs_reset = self.update_pc(update_both=self.update_both)
+
+        time.sleep(1)
+
+        if self.update_both == True:
+            self.update_both = False
+
+        return self.get_state()
 
 
-    def render(self):
+    def render(self, mode):
         c_index = self.step_counter / float(self.episode_len)
-        print(c_index)
-        self.ax.scatter(self.obs_em[0], self.obs_em[1], color=self.cmap(c_index), marker='o', s=50, alpha=0.75)
+        self.ax.scatter(self.obs_em[0], self.obs_em[1], color=self.cmap(c_index), marker='.', s=50, alpha=0.75)
         plt.draw()
-        plt.pause(0.5)
+        plt.pause(0.1)
 
 
     def generate_spec_vector(self):
-        result = np.zeros(3)
+        result = np.zeros(2)
 
         # spec -> {label: [index, sign]}
         spec = {}
@@ -235,44 +312,84 @@ class PR2Env(gym.Env):
         spec['behind'] = [0, 1]
 
         # Y
-        spec['left'] = [1, -1]
-        spec['right'] = [1, 1]
+        spec['left'] = [1, 1]
+        spec['right'] = [1, -1]
 
         # Z
-        spec['below'] = [2, -1]
-        spec['above'] = [2, 1]
+        # spec['below'] = [2, -1]
+        # spec['above'] = [2, 1]
 
-        for label in self.goal_spec:
-            axis_index = spec[label][0]
-            result[axis_index] = spec[label][1]
+        if self.goal_spec is not None:
+            for label in self.goal_spec:
+                axis_index = spec[label][0]
+                result[axis_index] = spec[label][1]
 
         return result
 
 
     def check_spec_satisfaction(self):
 
-        done = True
+        spec_satisfaction = True
 
-        (xyz, bgr) = self.k_processor.output[-1]
-        self.segmentor.load_processed_frame([xyz, bgr])
-        self.segmentor.process_data()
+        
+        b0 = self.b0[self.b0 != [0,0,0]]
+        b0 = b0.reshape(len(b0) / 3, 3)
+        b1 = self.b1[self.b1 != [0,0,0]]
+        b1 = b1.reshape(len(b1) / 3, 3)
 
-        # embed the segmented Point Cloud
-        # !! swap the axes for the object PCs before feeding into the model
-        b0 = self.segmentor.output[0]['green_cube']
-        b1 = self.segmentor.output[0]['red_cube']
-
-        b0_m = np.mean(b0, axis=(0,1))
-        b1_m = np.mean(b1, axis=(0,1))
+        b0_m = np.mean(b0, axis=0)
+        b1_m = np.mean(b1, axis=0)
 
         diff = np.sign(b0_m - b1_m)
+        # print("Diff", b0_m - b1_m)
+        # print("\n")
 
         for i, entry in enumerate(self.spec_vector):
             if entry != 0:
-                done = done and diff[i] == entry
+                spec_satisfaction = spec_satisfaction and diff[i] == entry
 
-        return done
+        return spec_satisfaction
 
+
+    def update_pc(self, update_both=False):
+        time.sleep(0.5)
+        needs_reset = False
+        pc_update_success = False
+
+        while not pc_update_success:
+            # get latest Transformed Poing Cloud and segment it
+            # k_processor runs in a separate thread
+            (xyz, bgr) = self.k_processor.output[-1]
+            self.segmentor.load_processed_frame([xyz, bgr])
+
+            if update_both:
+                objects = self.objects
+            else:
+                objects = [self.objects[0]]
+
+            try:
+                self.segmentor.process_data(objects)
+            except:
+                print("\nSEGMENTOR CAN'T PROCESS DATA")
+                needs_reset = True
+                return needs_reset
+
+            try:
+                # embed the segmented Point Cloud
+                # self.objects[<b0_object_name>, <b1_object_name>]
+                # !! swap the axes for the object PCs before feeding into the model
+                self.b0 = self.segmentor.output[-1][self.objects[0]]
+                
+                if update_both:
+                    self.b1 = self.segmentor.output[-1][self.objects[1]]
+
+                pc_update_success = True
+            except:
+                print("\nCAN'T SEGMENT WELL, ONLY SEGMENTS {0} \n".format(self.segmentor.output[-1]))
+                needs_reset = True
+                return needs_reset
+
+        return needs_reset
 
 if __name__ == "__main__":
 
@@ -283,26 +400,44 @@ if __name__ == "__main__":
                         help='Index for a scene/setup')
     parser.add_argument('--mode', '-m', default='gather',
                         help='Whether we are gathering data or learning')
+    parser.add_argument('--state_type', default='eef',
+                        help='The type of state space used by the agent - [eef, eff_embed]')
+    parser.add_argument('--reward_type', default='discrete',
+                        help='The type of reward used by the agent - [discrete, embed]')
+    parser.add_argument('--active_arm', default="right_arm", type=str,
+                        help='The arm which will be actucated - [right_arm, left_arm]')
+    parser.add_argument('--task_name', default='right',
+                        help='The name for the spatial prep for which a policy is learned - [left, right, front, behind]')
     parser.add_argument('--verbose', type=int, default=0,
                         help='Verbose logging')
     parser.add_argument('--render', action='store_true', default=False,
                         help='Render the env')
     args = parser.parse_args()
 
-    env = PR2Env(args=args)
+    env = PR2Env(args=args, goal_spec=['behind'])
     s = env.reset()
 
-    for _ in range(10):
-        env.render()
+    for i in range(10):
+        for j in range(10):
+            print(i,j)
+            # env.update_pc()
+            # env.obs_em = env.get_embedding()
 
-        # delta_t = np.random.uniform(low=-0.02, high=0.02, size=3)
-        # delta_rpy = np.random.uniform(low=-math.pi/12., high=math.pi/12., size=3)
-        delta_t = np.zeros(3)
-        delta_t[0] = 0.05
-        delta_rpy = np.zeros(3)
-        print("Delta t:\t {0},\tDelta RPY:\t {1}".format(delta_t, delta_rpy))
-        
-        env.step([delta_t, delta_rpy])
+            delta = np.random.uniform(low=-1, high=1, size=6)
+            # delta_rpy = np.random.uniform(low=-math.pi/12., high=math.pi/12., size=3)
+            # delta = np.zeros(6)
+            # delta[0] = 0.5
+            # delta_rpy = np.zeros(3)
+            # print("Delta :\t {0}".format(delta))
+            
+            result = env.step(delta)
+            print(result[3])
+            if result[3]['needs_reset']:
+                break
+
+            env.render()
+
+        env.reset()
 
     plt.show()
 
