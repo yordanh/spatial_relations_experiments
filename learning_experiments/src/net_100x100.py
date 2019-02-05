@@ -55,12 +55,11 @@ class Operator(chainer.Chain):
 class Conv_Siam_VAE(chainer.Chain):
     """Convolutional Variational AutoEncoder"""
 
-    def __init__(self, in_channels_branch_0=None, in_channels_branch_1=None, n_latent=None, groups=None, alpha=1, beta=100, gamma=100000):
+    def __init__(self, in_channels_n=None, n_latent=None, groups=None, alpha=1, beta=100, gamma=100000):
         super(Conv_Siam_VAE, self).__init__()
         with self.init_scope():
 
-            self.in_channels_branch_0 = in_channels_branch_0
-            self.in_channels_branch_1 = in_channels_branch_1
+            self.in_channels_n = in_channels_n
             self.alpha = alpha
             self.beta = beta
             self.gamma= gamma
@@ -72,12 +71,12 @@ class Conv_Siam_VAE(chainer.Chain):
 
             ########################
             # encoder for branch 0 #
-            ########################
-            self.encoder_conv_b0_0 = L.Convolution2D(in_channels_branch_0, 32, ksize=7, pad=3) # (100, 100)
+            ######################## 
+            self.encoder_conv_b0_0 = L.Convolution2D(self.in_channels_n, 32, ksize=7, pad=3) # (100, 100)
             # max pool ksize=2 (50, 50)
-            self.encoder_conv_b0_1 = L.Convolution2D(32, 16, ksize=5, pad=2) # (50, 50)
+            self.encoder_conv_b0_1 = L.Convolution2D(32, 32, ksize=5, pad=2) # (50, 50)
             # max pool ksize=2 (25,25)
-            self.encoder_conv_b0_2 = L.Convolution2D(16, 16, ksize=4) # (22, 22)
+            self.encoder_conv_b0_2 = L.Convolution2D(32, 16, ksize=4) # (22, 22)
             # max pool ksize=2 (11,11)
             self.encoder_conv_b0_3 = L.Convolution2D(16, 8, ksize=4) # (8, 8)
             # reshape from (8, 8, 8) to (1,512)
@@ -86,24 +85,6 @@ class Conv_Siam_VAE(chainer.Chain):
             self.encoder_mu_b0 = L.Linear(64, self.n_latent)
             self.encoder_ln_var_b0 = L.Linear(64, self.n_latent)
 
-
-            ########################
-            # encoder for branch 1 #
-            ########################
-            self.encoder_conv_b1_0 = L.Convolution2D(in_channels_branch_0, 32, ksize=7, pad=3) # (100, 100)
-            # max pool ksize=2 (50, 50)
-            self.encoder_conv_b1_1 = L.Convolution2D(32, 16, ksize=5, pad=2) # (50, 50)
-            # max pool ksize=2 (25,25)
-            self.encoder_conv_b1_2 = L.Convolution2D(16, 16, ksize=4) # (22, 22)
-            # max pool ksize=2 (11,11)
-            self.encoder_conv_b1_3 = L.Convolution2D(16, 8, ksize=4) # (8, 8)
-            # reshape from (8, 8, 8) to (1,512)
-            self.encoder_dense_b1_0 = L.Linear(512, 64)
-
-            self.encoder_mu_b1 = L.Linear(64, self.n_latent)
-            self.encoder_ln_var_b1 = L.Linear(64, self.n_latent)
-
-
             # label classifiers taking the prodices values by the operators
             # for each concept group
             # each operator takes the concatenated samples from the latent space
@@ -111,13 +92,11 @@ class Conv_Siam_VAE(chainer.Chain):
             for i in range(self.group_n):
                 self.classifiers.add_link(L.Linear(1, self.groups_len[i]))
                 self.operators.add_link(Operator(input_channels=self.group_n, n_latent=self.n_latent, embed_size=1))
-            self.operators.add_link(Operator(input_channels=self.n_latent, n_latent=self.n_latent, embed_size=self.n_latent))
 
 
             ########################
             # decoder for branch 0 #
             ########################
-            # self.decoder_dense_b0_0 = L.Linear(self.n_latent + len(self.groups_len), 64)
             self.decoder_dense_b0_0 = L.Linear(self.n_latent, 64)
             self.decoder_dense_b0_1 = L.Linear(64, 512)
             # reshape from (1, 512) to (8, 8, 8)
@@ -125,16 +104,15 @@ class Conv_Siam_VAE(chainer.Chain):
             # unpool ksize=2 (16, 16)
             self.decoder_conv_b0_1 = L.Convolution2D(8, 16, ksize=3) # (14, 14)
             # unpool ksize=2 (28, 28)
-            self.decoder_conv_b0_2 = L.Convolution2D(16, 16, ksize=4) # (25, 25)
+            self.decoder_conv_b0_2 = L.Convolution2D(16, 32, ksize=4) # (25, 25)
             # unpool ksize=2 (50, 50)
-            self.decoder_conv_b0_3 = L.Convolution2D(16, 32, ksize=5, pad=2) # (50, 50)
+            self.decoder_conv_b0_3 = L.Convolution2D(32, 32, ksize=5, pad=2) # (50, 50)
             # unpool ksize=2 (100, 100)
-            self.decoder_output_img_b0 = L.Convolution2D(32, in_channels_branch_0, ksize=7, pad=3) # (100, 100)
+            self.decoder_output_img_b0 = L.Convolution2D(32, self.in_channels_n, ksize=7, pad=3) # (100, 100)
 
             ########################
             # decoder for branch 1 #
             ########################
-            # self.decoder_dense_b1_0 = L.Linear(self.n_latent + len(self.groups_len), 64)
             self.decoder_dense_b1_0 = L.Linear(self.n_latent, 64)
             self.decoder_dense_b1_1 = L.Linear(64, 512)
             # reshape from (1, 512) to (8, 8, 8)
@@ -142,15 +120,14 @@ class Conv_Siam_VAE(chainer.Chain):
             # unpool ksize=2 (16, 16)
             self.decoder_conv_b1_1 = L.Convolution2D(8, 16, ksize=3) # (14, 14)
             # unpool ksize=2 (28, 28)
-            self.decoder_conv_b1_2 = L.Convolution2D(16, 16, ksize=4) # (25, 25)
+            self.decoder_conv_b1_2 = L.Convolution2D(16, 32, ksize=4) # (25, 25)
             # unpool ksize=2 (50, 50)
-            self.decoder_conv_b1_3 = L.Convolution2D(16, 32, ksize=5, pad=2) # (50, 50)
+            self.decoder_conv_b1_3 = L.Convolution2D(32, 32, ksize=5, pad=2) # (50, 50)
              # unpool ksize=2 (100, 100)
-            self.decoder_output_img_b1 = L.Convolution2D(32, in_channels_branch_0, ksize=7, pad=3) # (100, 100)
+            self.decoder_output_img_b1 = L.Convolution2D(32, self.in_channels_n, ksize=7, pad=3) # (100, 100)
 
 
     def __call__(self, x_b0, x_b1):
-        """AutoEncoder"""
         encoded = self.encode(x_b0, x_b1)
         mu_b0 = encoded[2]
         ln_var_b0 = encoded[3]
@@ -162,8 +139,8 @@ class Conv_Siam_VAE(chainer.Chain):
         z_b1_sample = F.gaussian(mu_b1[:, self.group_n:], ln_var_b1[:, self.group_n:]) 
 
         _, latent, _, _ = self.predict_label(mu_b0, mu_b1)
-        _, _, _ = self.predict_label(mu_b1, mu_b0)
-        return self.decode(z_b0_sample, z_b1_sample, latent)
+        out_labels, latent, mus, ln_vars = self.predict_label(mu_b1, mu_b0)
+        return self.decode(mu_b0[:, self.group_n:], mu_b1[:, self.group_n:], latent)
 
     def encode(self, x_b0, x_b1):
         conv_b0_0_encoded = F.leaky_relu(self.encoder_conv_b0_0(x_b0))# (100, 100)
@@ -353,9 +330,8 @@ class Conv_Siam_VAE(chainer.Chain):
 class Conv_Siam_Classifier(Conv_Siam_VAE):
     """Convolutional Variational AutoEncoder"""
 
-    def __init__(self, in_channels_branch_0=None, in_channels_branch_1=None, n_latent=None, groups=None, alpha=1, beta=100, gamma=100000):
-        super(Conv_Siam_Classifier, self).__init__(in_channels_branch_0=in_channels_branch_0, 
-                                                   in_channels_branch_1=in_channels_branch_1, 
+    def __init__(self, in_channels_n=None, n_latent=None, groups=None, alpha=1, beta=100, gamma=100000):
+        super(Conv_Siam_Classifier, self).__init__(in_channels_n=in_channels_n, 
                                                    n_latent=n_latent, groups=groups, 
                                                    alpha=alpha, beta=beta, gamma=gamma)
     
