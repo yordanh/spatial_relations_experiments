@@ -39,6 +39,7 @@ class Spatial_Annotator(object):
         self.instructions = config['instructions']
         self.data = {'_'.join(spatial_labels) : [[],[],[]] for spatial_labels in config['groups'].values()}
         self.data['unseen'] = [[],[],[]]
+        self.data_unlabelled = [[],[],[]]
 
         print(self.data)
         print(self.instructions)
@@ -58,22 +59,32 @@ class Spatial_Annotator(object):
                 branch_1_label = instruction[2]
                 spatial_label = instruction[1]
 
-                label = None
-                concept_label = None
-                for concept_group in self.concept_groups.values():
-                    if spatial_label in concept_group:
-                        label = concept_group.index(spatial_label)
-                        concept_label = '_'.join(concept_group)
-                        break
+                if spatial_label == "unlabelled":
+                    for entry in self.rosbad_dump:
+                        if not (branch_0_label in entry and branch_1_label in entry):
+                            continue
 
-                for entry in self.rosbad_dump:
+                        self.data_unlabelled[0].append(entry[branch_0_label])
+                        self.data_unlabelled[1].append(entry[branch_1_label])
+                        self.data_unlabelled[2].append(0)
 
-                    if not (branch_0_label in entry and branch_1_label in entry):
-                        continue
+                else:
+                    label = None
+                    concept_label = None
+                    for concept_group in self.concept_groups.values():
+                        if spatial_label in concept_group:
+                            label = concept_group.index(spatial_label)
+                            concept_label = '_'.join(concept_group)
+                            break
 
-                    self.data[concept_label][0].append(entry[branch_0_label])
-                    self.data[concept_label][1].append(entry[branch_1_label])
-                    self.data[concept_label][2].append(label)
+                    for entry in self.rosbad_dump:
+
+                        if not (branch_0_label in entry and branch_1_label in entry):
+                            continue
+
+                        self.data[concept_label][0].append(entry[branch_0_label])
+                        self.data[concept_label][1].append(entry[branch_1_label])
+                        self.data[concept_label][2].append(label)
         
         # assumes the unseen data is always clouds with two objects in the scene
         # TODO - generalise that to multiple objects and resultant possble pairs
@@ -96,6 +107,20 @@ class Spatial_Annotator(object):
     def save_to_npz(self, output_path='../learning_experiments/data'):
 
         output_path = osp.join(output_path, self.dtype)
+
+        # save unlabelled
+        output = {"branch_0":self.data_unlabelled[0], "branch_1":self.data_unlabelled[1], "label":self.data_unlabelled[2]}
+        
+        npz_list = [x for x in os.listdir(output_path) if "unlabelled" == '_'.join(x.split('_')[:-1])]
+        if npz_list == []:
+            index = 0
+        else:
+            index = sorted([int(x.replace('.npz', '').split('_')[-1]) for x in npz_list])[-1] + 1
+
+        np.savez(os.path.join(output_path, "unlabelled" + '_' + str(index) + ".npz"), **output)
+
+
+        # save labelled
         for key in self.data.keys():
             output = {"branch_0":self.data[key][0], "branch_1":self.data[key][1], "label":self.data[key][2]}
             
