@@ -39,22 +39,27 @@ class Object_Segmentor(object):
         self.scene = args.scene
         self.mode = mode
 
-        self.expected_objects = ['red_cube', 'green_cube']
         if self.mode == "gather":
             config_file = open(osp.join('scenes', self.scene, 'config.json'), "r")
             self.expected_objects = json.load(config_file)['expected_objects']
 
-        self.bounds = {'x':[0.1, 1.3], 'y':[-0.5, 0.5], 'z':[0.0, 1.0]}
+        self.bounds = {'x':[0.1, 1.3], 'y':[-0.8, 0.8], 'z':[0.4, 1.4]}
 
 
 
-    def process_data(self):
+    def process_data(self, objects=None):
 
         height = 540
         width = 960
         offset = 0
         margin_h = 0
         margin_w = 0
+
+        if objects != None:
+            expected_objects = objects
+        else:
+            expected_objects = self.expected_objects
+
         
         image_bbox = [offset + margin_h, \
                       offset + height - margin_h, \
@@ -65,11 +70,7 @@ class Object_Segmentor(object):
         width -= 2*margin_w
 
         # half of the crop's size; we assume a square crop
-        crop_size = 100
-
-        # params for the bg subraction
-        bg_patch_size = 10
-        bg_threshold = 40
+        crop_size = 50
 
         last_entry = None
 
@@ -88,8 +89,6 @@ class Object_Segmentor(object):
             xyz = xyz[image_bbox[0] : image_bbox[1], image_bbox[2] : image_bbox[3], :]
             bgr = bgr[image_bbox[0] : image_bbox[1], image_bbox[2] : image_bbox[3], :].astype(np.uint8)
 
-            # bgr = cv2.imread("maskrcnn_model/frame0000.jpg")
-
             new_entry = {}
             #pass through the model
             batch = np.array(np.transpose(bgr, (2,0,1)))
@@ -107,7 +106,7 @@ class Object_Segmentor(object):
             # print(labels)
             scores = scores[0][indecies]
 
-            if not all([x in labels for x in self.expected_objects]):
+            if not all([x in labels for x in expected_objects]):
                 print("Only these objects were found - {0} with scores - {1}".format(labels, scores))
                 cv2.imshow("bgr", bgr)
                 cv2.waitKey(2000)
@@ -128,7 +127,7 @@ class Object_Segmentor(object):
             
             for (bbox, mask, label, score) in zip(bboxes, masks, labels, scores):
 
-                if label not in self.expected_objects:
+                if label not in expected_objects:
                     continue
 
                 y1, x1, y2, x2 = bbox.astype(int).tolist()
@@ -145,7 +144,7 @@ class Object_Segmentor(object):
                 bgr_crop = bgr[bbox[0] : bbox[1], bbox[2] : bbox[3], :].copy()
                 mask = mask[bbox[0] : bbox[1], bbox[2] : bbox[3]].copy()
 
-                kernel = np.ones((5, 5), np.uint8)
+                kernel = np.ones((10, 10), np.uint8)
                 mask = cv2.erode(mask.astype(np.uint8), kernel, iterations=1)
 
                 # bgr_crop[mask != 1] = 0

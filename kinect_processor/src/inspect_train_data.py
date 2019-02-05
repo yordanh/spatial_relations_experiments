@@ -24,6 +24,7 @@ DATA_PATH = osp.join("../learning_experiments/data", args.dtype)
 
 keys = os.listdir(DATA_PATH)
 keys = [x.replace('.npz', '') for x in keys]
+crop_size = 100
 
 for key in keys:
 	data = np.load(osp.join(DATA_PATH, key + '.npz'))
@@ -34,7 +35,7 @@ for key in keys:
 		fig.canvas.set_window_title(key)
 		ax = fig.gca(projection='3d')
 
-		points = data['branch_0'][i].reshape(200*200,3)
+		points = data['branch_0'][i].reshape(crop_size*crop_size,3)
 		filtered_points = np.array(list(filter(lambda row : filter(lambda point : (point != [0,0,0]).all(), row), points)))
 
 		xs = filtered_points[...,0][::3]
@@ -45,7 +46,7 @@ for key in keys:
 
 
 
-		points = data['branch_1'][i].reshape(200*200,3)
+		points = data['branch_1'][i].reshape(crop_size*crop_size,3)
 		filtered_points = np.array(list(filter(lambda row : filter(lambda point : (point != [0,0,0]).all(), row), points)))
 
 		xs = filtered_points[...,0][::3]
