@@ -60,7 +60,7 @@ def main():
                         help='Gamma coefficient for the classification loss')
     parser.add_argument('--alpha', '-a', default=1, 
                         help='Alpha coefficient for the reconstruction loss')
-    parser.add_argument('--freq', '-f', default=40, 
+    parser.add_argument('--freq', '-f', default=60, 
                     help='Frequency at which snapshots of the model are saved.')
     parser.add_argument('--mode', default="supervised", 
                     help='Mode of training - weakly supervised or unsupervised')
@@ -134,13 +134,13 @@ def main():
                                                  repeat=False, shuffle=False)
 
     if args.model == "full" or args.model == "var_classifier":
-        model = net.Conv_Siam_VAE(train_b0.shape[1], train_b1.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
+        model = net.Conv_Siam_VAE(train_b0.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
     elif args.model == "classifier":
-        model = net.Conv_Siam_Classifier(train_b0.shape[1], train_b1.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
+        model = net.Conv_Siam_Classifier(train_b0.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
     elif args.model == "beta_vae":
-        model = net.Conv_Siam_BetaVAE(train_b0.shape[1], train_b1.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
+        model = net.Conv_Siam_BetaVAE(train_b0.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
     elif args.model == "autoencoder":
-        model = net.Conv_Siam_AE(train_b0.shape[1], train_b1.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
+        model = net.Conv_Siam_AE(train_b0.shape[1], n_latent=args.dimz, groups=groups, alpha=args.alpha, beta=args.beta, gamma=args.gamma)
 
 
     # vs = model.get_latent(test_b0[:8], test_b0[:8])
@@ -182,7 +182,7 @@ def main():
     print("Save Optimizer\n")
     serializers.save_npz(os.path.join(models_folder, 'final.state'), optimizer)
 
-    exit()  
+    # exit()  
 
     # print("Clear Images from Last experiment\n")
     # clear_last_results(folder_name=args.out)
@@ -210,6 +210,8 @@ def main():
 
     output = {"gt_b0": gt_b0, "gt_b1": gt_b1, 'rec_b0': rec_b0, 'rec_b1': rec_b1}
     np.savez(os.path.join(args.out, "reconstruction_arrays/train" + ".npz"), **output)
+
+    exit()
 
     axis_ranges = [-15, 15]
     pairs = [(0,1)]
