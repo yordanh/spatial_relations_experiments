@@ -394,11 +394,13 @@ class Conv_Siam_Classifier(Conv_Siam_VAE):
 class Conv_Siam_BetaVAE(Conv_Siam_VAE):
     """Convolutional Variational AutoEncoder"""
 
-    def __init__(self, in_channels_branch_0=None, in_channels_branch_1=None, n_latent=None, groups=None, alpha=1, beta=100, gamma=100000):
-        super(Conv_Siam_BetaVAE, self).__init__(in_channels_branch_0=in_channels_branch_0, 
-                                                in_channels_branch_1=in_channels_branch_1, 
+    def __init__(self, in_channels_n=None, n_latent=None, groups=None, alpha=1, beta=100, gamma=100000):
+        super(Conv_Siam_BetaVAE, self).__init__(in_channels_n=in_channels_n, 
                                                 n_latent=n_latent, groups=groups, 
                                                 alpha=alpha, beta=beta, gamma=gamma)
+
+        self.operators = chainer.ChainList()
+        self.operators.add_link(Operator(input_channels=self.n_latent, n_latent=self.n_latent, embed_size=self.n_latent))
     
 
     def decode(self, z_b0, z_b1, latent, sigmoid=True):
@@ -466,12 +468,13 @@ class Conv_Siam_BetaVAE(Conv_Siam_VAE):
 class Conv_Siam_AE(Conv_Siam_VAE):
     """Convolutional Variational AutoEncoder"""
 
-    def __init__(self, in_channels_branch_0=None, in_channels_branch_1=None, n_latent=None, groups=None, alpha=1, beta=100, gamma=100000):
-        super(Conv_Siam_AE, self).__init__(in_channels_branch_0=in_channels_branch_0, 
-                                           in_channels_branch_1=in_channels_branch_1, 
+    def __init__(self, in_channels_n=None, n_latent=None, groups=None, alpha=1, beta=100, gamma=100000):
+        super(Conv_Siam_AE, self).__init__(in_channels_n=in_channels_n, 
                                            n_latent=n_latent, groups=groups, 
                                            alpha=alpha, beta=beta, gamma=gamma)
     
+        self.operators = chainer.ChainList()
+        self.operators.add_link(Operator(input_channels=self.n_latent, n_latent=self.n_latent, embed_size=self.n_latent))
 
     def decode(self, z_b0, z_b1, latent, sigmoid=True):
 
