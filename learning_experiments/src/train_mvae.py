@@ -34,10 +34,8 @@ import chainer.functions as F
 from chainer import serializers
 
 # Sibling Modules
-# import net_100x100_ae as net
 import net_128x128_mvae as net
 import data_generator_mvae as data_generator
-# import data_generator_mvae_dsprites as data_generator
 from config_parser import ConfigParser
 from utils import *
 
@@ -127,26 +125,30 @@ def main():
     print("# Testing Rel Vectors: \t\t{0}".format(test_vectors.shape))
     print('###############################################\n')
     
-    if len(train_concat[0]) > 1:
-
+    if len(train_concat[1]) > 0:
         print("# Relation Label Stats:")
-        train_rel_vectors = np.array([train_concat[i][1] for i in range(len(train_concat))])
-        test_rel_vectors = np.array([test_concat[i][1] for i in range(len(test_concat))])
         for group_idx, group in groups_rel.items():
             print("# Group: \t\t{0} : {1}".format(group_idx, group))
             for label_idx, label in enumerate(group + ["unlabelled"]):
-                print("#{0} Train: \t\t{1}".format(label,len(filter(lambda x:label_idx == x[group_idx], train_rel_vectors))))
-                print("#{0} Test: \t\t{1}".format(label,len(filter(lambda x:label_idx == x[group_idx], test_rel_vectors))))
+                print("#{0} Train: \t\t{1}".format(label,len(filter(lambda x:label == x[group_idx], train_labels))))
+                print("#{0} Test: \t\t{1}".format(label,len(filter(lambda x:label == x[group_idx], test_labels))))
         print('###############################################\n')
 
+    if len(train_concat[3]) > 0:
         print("# Object Label Stats:")
         train_object_vectors = np.array([train_concat[i][3][j] for i in range(len(train_concat)) for j in range(args.objects_n)])
         test_object_vectors = np.array([test_concat[i][3][j] for i in range(len(test_concat)) for j in range(args.objects_n)])
+
+        train_object_vector_masks = np.array([train_concat[i][4][j] for i in range(len(train_concat)) for j in range(args.objects_n)])
+        test_object_vector_masks = np.array([test_concat[i][4][j] for i in range(len(test_concat)) for j in range(args.objects_n)])
         for group_idx, group in groups_obj.items():
             print("# Group: \t\t{0} : {1}".format(group_idx, group))
-            for label_idx, label in enumerate(group + ["unlabelled"]):
-                print("#{0} Train: \t\t{1}".format(label,len(filter(lambda x:label_idx == x[group_idx], train_object_vectors))))
-                print("#{0} Test: \t\t{1}".format(label,len(filter(lambda x:label_idx == x[group_idx], test_object_vectors))))
+            for label_idx, label in enumerate(group):
+                print("#{0} Train: \t\t{1}".format(label,len(filter(lambda (x, y):label_idx == x[group_idx] and y[group_idx] != 0, zip(train_object_vectors, train_object_vector_masks)))))
+                print("#{0} Test: \t\t{1}".format(label,len(filter(lambda (x, y):label_idx == x[group_idx] and y[group_idx] != 0, zip(test_object_vectors, test_object_vector_masks)))))
+            for label_idx, label in enumerate(["unlabelled"]):
+                print("#{0} Train: \t\t{1}".format(label,len(filter(lambda (x, y):label_idx == x[group_idx] and y[group_idx] == 0, zip(train_object_vectors, train_object_vector_masks)))))
+                print("#{0} Test: \t\t{1}".format(label,len(filter(lambda (x, y):label_idx == x[group_idx] and y[group_idx] == 0, zip(test_object_vectors, test_object_vector_masks)))))
         print('###############################################\n')
 
     train_iter = chainer.iterators.SerialIterator(train_concat, args.batchsize)
