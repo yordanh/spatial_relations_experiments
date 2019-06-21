@@ -134,11 +134,15 @@ class DataGenerator(object):
                     mask = data[...,4:]
                     mask = (mask * 255).astype(np.uint8)
 
+                    # cv2.imshow("mask", mask * 255)
+                    # cv2.waitKey()
+
                     object_masks = {}
                     obj_pixel_vals = []
 
                     big_mask_flag = False
 
+                    overlapping_objects = []
                     for i, obj in enumerate(scene_objs):
                         mask_tmp = mask.copy()
                         pixel_coords = obj['pixel_coords'][:2]
@@ -153,7 +157,41 @@ class DataGenerator(object):
                         if (np.sum(object_masks[i]) > 8000):
                             big_mask_flag = True
 
-                        # cv2.imshow("mask " + str(i), object_masks[i] * 255)
+                        # # # x, y, width, height
+                        box = obj['bbox']
+                        box_exp = []
+                        # print(box)
+
+                        # for i, box in box_dict.items():
+                        new_x = box[0] - 2 if box[0] >= 2 else 0
+                        box_exp.append(new_x)
+
+                        new_y = box[1] - 2 if box[1] >= 2 else 0
+                        box_exp.append(new_y)
+
+                        new_w = box[2] + 2 if new_x + box[2] <= 127 else 127 - new_x
+                        box_exp.append(new_w)
+
+                        new_h = box[3] + 2 if new_y + box[3] <= 127 else 127 - new_y
+                        box_exp.append(new_h)
+
+                        # print(box_exp)
+
+                        obj_box = mask_tmp[box_exp[1] : box_exp[1] + box_exp[3], box_exp[0] : box_exp[0] + box_exp[2], :]
+
+                        bg_pixel_coords = [0, 0]
+                        bg_pixel_val = list(mask_tmp[bg_pixel_coords[1], bg_pixel_coords[0]])
+
+                        tmp = np.logical_and((obj_box != obj_pixel_val).all(axis=2), (obj_box != bg_pixel_val).all(axis=2)).astype(np.int32)
+                        # print(i, np.sum(tmp))
+                        if np.sum(tmp) > 50:
+                            # print("OVERLAP!!", np.sum(tmp))
+                            overlapping_objects.append(i)
+
+                        # object_masks[i] *= 255
+                        # cv2.rectangle(object_masks[i], (box_exp[0], box_exp[1]), (box_exp[0] + box_exp[2], box_exp[1] + box_exp[3]), 127,  thickness=1)
+                        # cv2.imshow("mask " + str(i), object_masks[i])
+                        # cv2.imshow("cropped mask " + str(i), obj_box * 255)
                         # cv2.waitKey()
 
                     if big_mask_flag:
@@ -198,7 +236,7 @@ class DataGenerator(object):
                     ###########################################
                     ####### TMP FIX; TODO:REMOVE ##############
                     ###########################################
-                    # rel_index = {i:{i:['unlabelled', 'unlabelled', 'unlabelled']} for i in range(n_obj)}
+                    # rel_index = {i:{i:['unlabelled', 'unlabelled', 'unlabelled', 'unlabelled', 'unlabelled']} for i in range(n_obj)}
                     ###########################################
                     ####### TMP FIX; TODO:REMOVE ##############
                     ###########################################
@@ -250,17 +288,27 @@ class DataGenerator(object):
                                 train_object_vector_masks.append([])
 
                                 for idx in [ref_idx, target_idx]:
-                                    color = scene_objs[idx]['color']
-                                    size = scene_objs[idx]['size']
-                                    shape = scene_objs[idx]['shape']
                                     coords = scene_objs[idx]['3d_coords']
-                                    train_object_vectors[-1].append([object_colors.index(color),\
+                                    if idx not in overlapping_objects:
+                                        color = scene_objs[idx]['color']
+                                        size = scene_objs[idx]['size']
+                                        shape = scene_objs[idx]['shape']
+                                        train_object_vectors[-1].append([object_colors.index(color),\
                                                                  object_shapes.index(shape),\
                                                                  object_sizes.index(size),\
                                                                  coords[0],\
                                                                  coords[1],\
                                                                  coords[2]])
-                                    train_object_vector_masks[-1].append([1,1,1])
+                                        train_object_vector_masks[-1].append([1,1,1])
+                                    else:
+                                        color, size, shape = ['unlabelled', 'unlabelled', 'unlabelled']
+                                        train_object_vectors[-1].append([0,\
+                                                                 0,\
+                                                                 0,\
+                                                                 coords[0],\
+                                                                 coords[1],\
+                                                                 coords[2]])
+                                        train_object_vector_masks[-1].append([0, 0, 0])
 
                             
                             elif array_name in test_files:
@@ -290,17 +338,27 @@ class DataGenerator(object):
                                 test_object_vector_masks.append([])
 
                                 for idx in [ref_idx, target_idx]:
-                                    color = scene_objs[idx]['color']
-                                    size = scene_objs[idx]['size']
-                                    shape = scene_objs[idx]['shape']
                                     coords = scene_objs[idx]['3d_coords']
-                                    test_object_vectors[-1].append([object_colors.index(color),\
-                                                                 object_shapes.index(shape),\
-                                                                 object_sizes.index(size),\
+                                    if idx not in overlapping_objects:
+                                        color = scene_objs[idx]['color']
+                                        size = scene_objs[idx]['size']
+                                        shape = scene_objs[idx]['shape']
+                                        test_object_vectors[-1].append([object_colors.index(color),\
+                                                                     object_shapes.index(shape),\
+                                                                     object_sizes.index(size),\
+                                                                     coords[0],\
+                                                                     coords[1],\
+                                                                     coords[2]])
+                                        test_object_vector_masks[-1].append([1,1,1])
+                                    else:
+                                        color, size, shape = ['unlabelled', 'unlabelled', 'unlabelled']
+                                        test_object_vectors[-1].append([0,\
+                                                                 0,\
+                                                                 0,\
                                                                  coords[0],\
                                                                  coords[1],\
                                                                  coords[2]])
-                                    test_object_vector_masks[-1].append([1,1,1])
+                                        test_object_vector_masks[-1].append([0, 0, 0])
 
             if "unlabelled" not in ignore:
                 array_list = sorted(os.listdir(folder_name_train_arr))[:]
