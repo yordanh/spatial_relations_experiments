@@ -174,190 +174,46 @@ def main():
     optimizer.add_hook(chainer.optimizer_hooks.WeightDecay(0.0005))
     # optimizer.add_hook(chainer.optimizer_hooks.GradientClipping(0.00001))
 
-    lf = model.get_loss_func()
+    updater = training.StandardUpdater(train_iter, optimizer, 
+                                       loss_func=model.lf,
+                                       device=args.gpu)
 
+    trainer = training.Trainer(updater, (args.epochs, 'epoch'), out=args.output_dir)
+    trainer.extend(extensions.Evaluator(test_iter, model, eval_func=model.lf, device=args.gpu), trigger=(1, 'epoch'))
+    trainer.extend(extensions.LogReport(trigger=(1, 'epoch')))
+    trainer.extend(extensions.PrintReport(['epoch', \
+                                           'main/rec_l', 'validation/main/rec_l', \
+                                           'validation/main/kl', \
+                                           'main/obj_a','validation/main/obj_a', \
+                                           'main/rel_a','validation/main/rel_a', \
+                                           # 'main/obj_l','main/rel_l',\
+                                           'validation/main/obj_l','validation/main/rel_l']))
+    trainer.extend(extensions.PlotReport(['main/rec_l', \
+                                          'validation/main/rec_l'], \
+                                           x_key='epoch', file_name='rec_loss.png', marker=None))
+    trainer.extend(extensions.PlotReport(['main/kl', \
+                                          'validation/main/kl'], \
+                                           x_key='epoch', file_name='kl.png', marker=None))
+    trainer.extend(extensions.PlotReport(['main/obj_a', \
+                                          'validation/main/obj_a'], \
+                                           x_key='epoch', file_name='object_acc.png', marker=None))
+    trainer.extend(extensions.PlotReport(['main/obj_l', \
+                                          'validation/main/obj_l'], \
+                                           x_key='epoch', file_name='object_loss.png', marker=None))
+    trainer.extend(extensions.PlotReport(['main/rel_a', \
+                                          'validation/main/rel_a'], \
+                                           x_key='epoch', file_name='relation_acc.png', marker=None))
+    trainer.extend(extensions.PlotReport(['main/rel_l', \
+                                          'validation/main/rel_l'], \
+                                           x_key='epoch', file_name='relation_loss.png', marker=None))
+    # trainer.extend(extensions.dump_graph('main/loss'))
+    trainer.extend(extensions.ProgressBar(update_interval=10))
+    trainer.extend(extensions.FailOnNonNumber())
+    trainer.extend(extensions.snapshot(filename='snapshot_epoch_{.updater.epoch}.trainer'), trigger=(args.epochs, 'epoch'))
+    trainer.extend(extensions.snapshot_object(model, 'final.model'), trigger=(args.epochs, 'epoch'))
+    trainer.extend(model.check_loss_coefficients(), trigger=(1, 'epoch'))
 
-    # vs = model.get_loss_func()(cupy.asarray(test[:2]))
-    # # vs = model(test)
-    # import chainer.computational_graph as c
-    # g = c.build_computational_graph(vs)
-    # with open('./result/file_latent.dot', 'w') as o:
-    # # with open('./result/file_rec.dot', 'w') as o:
-    #     o.write(g.dump())
-    # exit()
-
-    
-    stats, model, optimizer, _ = training_loop(model=model, optimizer=optimizer, stats=stats, 
-                                                           epochs=args.epochs, train_iter=train_iter, 
-                                                           test_iter=test_iter, lf=lf, 
-                                                           models_folder=models_folder, 
-                                                           mode="supervised", args=args)
-
-    print("Save Stats\n")
-    np.savez(os.path.join(args.output_dir, 'stats.npz'), **stats)
-
-    print("Save Model\n")
-    serializers.save_npz(os.path.join(models_folder, 'final.model'), model)
-
-    print("Save Optimizer\n")
-    serializers.save_npz(os.path.join(models_folder, 'final.state'), optimizer)
-
-
-def training_loop(model=None, optimizer=None, stats=None, epochs=None, train_iter=None, test_iter=None, 
-                  lf=None, models_folder=None, epochs_so_far=0, mode=None, args=None):
-
-    train_losses = []
-    train_rec_losses = []
-    train_kl = []
-    train_label_obj_losses = []
-    train_label_obj_accs = []
-    train_label_rel_losses = []
-    train_label_rel_accs = []
-
-    train_dist = []
-    train_total_corr = []
-
-    while train_iter.epoch < epochs:
-        # ------------ One epoch of the training loop ------------
-        # ---------- One iteration of the training loop ----------
-
-        # if train_iter.epoch < 20:
-        #     model.gamma = 0
-        #     # model.alpha = 0
-        # else:
-        #   model.gamma = float(args.gamma)
-        #     # model.alpha = float(args.alpha)
-
-        # model.beta = float(args.beta) * (train_iter.epoch / float(100))
-
-        train_batch = train_iter.next()
-
-        image_train = concat_examples(train_batch, 0)
-
-        # Calculate the loss with softmax_cross_entropy
-        loss, rec_loss, kl,label_obj_loss, label_obj_acc,\
-        label_rel_loss, label_rel_acc = model.get_loss_func()(image_train)
-
-        train_losses.append(loss.array)
-        train_rec_losses.append(rec_loss.array)
-        train_kl.append(kl.array)
-        train_label_obj_losses.append(label_obj_loss.array)
-        train_label_obj_accs.append(label_obj_acc.array)
-        train_label_rel_losses.append(label_rel_loss.array)
-        train_label_rel_accs.append(label_rel_acc.array)
-
-        model.cleargrads()
-        loss.backward()
-
-        # Update all the trainable paremters
-        optimizer.update()
-
-
-        if train_iter.epoch % int(args.freq) == 0:
-            serializers.save_npz(os.path.join(models_folder ,str(train_iter.epoch + epochs_so_far) + '.model'), model)
-
-        # --------------------- iteration until here --------------------- 
-
-        if train_iter.is_new_epoch:
-
-            valid_losses = []
-            valid_rec_losses = []
-            valid_kl = []
-            valid_label_obj_losses = []
-            valid_label_obj_accs = []
-            valid_label_rel_losses = []
-            valid_label_rel_accs = []
-
-            while True:
-
-                test_batch = test_iter.next()
-
-                image_test = concat_examples(test_batch, 0)
-
-                loss, rec_loss, kl,label_obj_loss, label_obj_acc,\
-                label_rel_loss, label_rel_acc = model.get_loss_func()(image_test)
-
-                valid_losses.append(loss.array)
-                valid_rec_losses.append(rec_loss.array)
-                valid_kl.append(kl.array)
-                valid_label_obj_losses.append(label_obj_loss.array)
-                valid_label_obj_accs.append(label_obj_acc.array)
-                valid_label_rel_losses.append(label_rel_loss.array)
-                valid_label_rel_accs.append(label_rel_acc.array)
-
-                if test_iter.is_new_epoch:
-                    test_iter.epoch = 0
-                    test_iter.current_position = 0
-                    test_iter.is_new_epoch = False
-                    test_iter._pushed_position = None
-                    break
-
-            stats['train_loss'].append(np.mean(to_cpu(train_losses)))
-            stats['train_rec_loss'].append(np.mean(to_cpu(train_rec_losses)))
-            stats['train_label_obj_loss'].append(np.mean(to_cpu(train_label_obj_losses)))
-            stats['train_label_obj_acc'].append(np.mean(to_cpu(train_label_obj_accs)))
-            stats['train_label_rel_loss'].append(np.mean(to_cpu(train_label_rel_losses)))
-            stats['train_label_rel_acc'].append(np.mean(to_cpu(train_label_rel_accs)))
-
-            stats['valid_loss'].append(np.mean(to_cpu(valid_losses)))
-            stats['valid_rec_loss'].append(np.mean(to_cpu(valid_rec_losses)))
-            stats['valid_label_obj_loss'].append(np.mean(to_cpu(valid_label_obj_losses)))
-            stats['valid_label_obj_acc'].append(np.mean(to_cpu(valid_label_obj_accs)))
-            stats['valid_label_rel_loss'].append(np.mean(to_cpu(valid_label_rel_losses)))
-            stats['valid_label_rel_acc'].append(np.mean(to_cpu(valid_label_rel_accs)))
-
-            stats['valid_kl'].append(np.mean(to_cpu(valid_kl)))
-            stats['train_kl'].append(np.mean(to_cpu(train_kl)))
-    
-            # print(("Ep: {0}\tT: {1}\tV: {2}\tT_R: {3}\tV_R: {4}\t" + \
-            #       "T_KL: {5}\tV_KL: {6}\tT_Acc: {7}\tV_Acc: {8}\t" + \
-            #       "T_LL: {9}\tV_LL: {10}").format(train_iter.epoch, 
-            #                                                     round(stats['train_loss'][-1], 2),
-            #                                                     round(stats['valid_loss'][-1], 2),
-            #                                                     round(stats['train_rec_loss'][-1], 2),
-            #                                                     round(stats['valid_rec_loss'][-1], 2),
-            #                                                     round(stats['train_kl'][-1], 2),
-            #                                                     round(stats['valid_kl'][-1], 2),
-            #                                                     round(stats['train_label_acc'][-1], 4),
-            #                                                     round(stats['valid_label_acc'][-1], 4),
-            #                                                     round(stats['train_label_loss'][-1], 2),
-            #                                                     round(stats['valid_label_loss'][-1], 2)))
-
-            print(("Ep: {0}\t" + \
-                  "T_R: {1}\t" +\
-                  "V_R: {2}\t" + \
-                  "T_KL: {3}\t" +\
-                  "V_KL: {4}\t" + \
-                  "T_O_Acc: {5}\t" +\
-                  "V_O_Acc: {6}\t" + \
-                  "T_R_Acc: {7}\t" +\
-                  "V_R_Acc: {8}\t" + \
-                  # "T_O_LL: {9}\t" +\
-                  "V_O_LL: {10}\t" + \
-                  # "T_R_LL: {11}\t" +\
-                  "V_R_LL: {12}").format(train_iter.epoch, 
-                                                    round(stats['train_rec_loss'][-1], 0),
-                                                    round(stats['valid_rec_loss'][-1], 0),
-                                                    round(stats['train_kl'][-1], 0),
-                                                    round(stats['valid_kl'][-1], 0),
-                                                    round(stats['train_label_obj_acc'][-1], 4),
-                                                    round(stats['valid_label_obj_acc'][-1], 4),
-                                                    round(stats['train_label_rel_acc'][-1], 4),
-                                                    round(stats['valid_label_rel_acc'][-1], 4),
-                                                    round(stats['train_label_obj_loss'][-1], 0),
-                                                    round(stats['valid_label_obj_loss'][-1], 0),
-                                                    round(stats['train_label_rel_loss'][-1], 0),
-                                                    round(stats['valid_label_rel_loss'][-1], 0)))
-
-            train_losses = []
-            train_rec_losses = []
-            train_kl = []
-            train_label_obj_losses = []
-            train_label_obj_accs = []
-            train_label_rel_losses = []
-            train_label_rel_accs = []
-
-    return stats, model, optimizer, epochs
+    trainer.run()
 
 
 if __name__ == '__main__':

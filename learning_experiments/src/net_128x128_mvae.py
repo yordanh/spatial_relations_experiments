@@ -361,170 +361,177 @@ class Conv_MVAE(chainer.Chain):
 
         return latent_rel, mus, ln_vars
 
-
-    def get_loss_func(self, k=1):
-
-        def lf(x):
-
-            in_img = x[0]
-            if len(x) > 1:
-                in_rel_labels = x[1]
-                rel_masks = x[2]
-
-                object_labels = x[3]
-                object_label_masks = x[4]
-
-            batchsize = float(len(in_img))
-            denom = (k * batchsize * self.objects_n)
-
-            # non_masked = [[] for _ in range(group_n)]
-            # masks_flipped = [[] for _ in range(group_n)]
-
-            # escape dividing by 0 when there are no labelled data points in the batch
-            # for j in range(group_n):
-            #     non_masked[j] = sum(cp.array(masks[j])) + 1
-            #     masks_flipped[j] = 1 - cp.array(masks[j])
-
-            
-            latents = []
-            rec_loss = 0
-            kl = 0
-            label_obj_loss = 0
-            label_obj_acc = 0
-            label_rel_loss = 0
-            label_rel_acc = 0
-
-            latents, mus, ln_vars = self.get_latent_indiv(in_img)
-
-            offset_channels_n = self.rgb_channels_n + self.bg_channel_n + self.depth_channel_n
-
-            for obj_idx in range(self.objects_n):
-
-                rec_mask = in_img[:,obj_idx + offset_channels_n][:, None, :, :]
-
-                # KL TERM
-                if self.beta != 0:
-                    kl += gaussian_kl_divergence(mus[obj_idx], ln_vars[obj_idx]) / denom
-                else:
-                    kl = chainer.Variable(cp.zeros(1).astype(cp.float32))
+    def check_loss_coefficients(self):
+        @chainer.training.make_extension()
+        def f(trainer):
+            if trainer.updater.epoch >= 0:
+                self.gamma_rel = 50000 
 
 
-                # RESAMPLING
-                for l in six.moves.range(k):          
-                    
-                    # latents = []
-                    # for _ in range(self.objects_n):
-                    #     latents.append(F.gaussian(mus[obj_idx], ln_vars[obj_idx]))
+        return f
 
-                    # RECONSTRUCTION TERM
-                    if self.alpha != 0:
-                        out_img = self.spatial_decode(latents[obj_idx], sigmoid=False)
+    # def get_loss_func(self, k=1):
 
-                        x_true = in_img[:, :self.rgb_channels_n + self.depth_channel_n]
-                        x_pred = out_img[:, :self.rgb_channels_n + self.depth_channel_n]
-                        rec_loss += F.sum(F.bernoulli_nll(x_true, x_pred, reduce="no") * rec_mask) / denom
+        # def lf(x):
+    def lf(self, in_img, in_rel_labels, rel_masks, object_labels, object_label_masks, k=1):
 
-                        x_true = in_img[:, obj_idx + offset_channels_n]
-                        x_pred = out_img[:, 4]
-                        rec_loss += F.bernoulli_nll(x_true, x_pred) / denom
+        batchsize = float(len(in_img))
+        denom = (k * batchsize * self.objects_n)
 
-                    else:
-                        rec_loss = chainer.Variable(cp.zeros(1).astype(cp.float32))
-                
-                    # OBJECT CLASSIFICATION TERM
-                    if self.gamma_obj != 0:
+        
+        latents = []
+        rec_loss = 0
+        kl = 0
+        label_obj_loss = 0
+        label_obj_acc = 0
+        label_rel_loss = 0
+        label_rel_acc = 0
 
-                        out_obj_labels = self.predict_obj_label(latents[obj_idx], softmax=False)
-                        in_obj_labels = object_labels[:, obj_idx, :self.groups_obj_n].astype(cp.int32)
-                        in_spat_labels = object_labels[:, obj_idx, self.groups_obj_n:].astype(cp.float32)
-                        masks = object_label_masks[:, obj_idx]
+        latents, mus, ln_vars = self.get_latent_indiv(in_img)
 
-                        for i in range(self.groups_obj_n):
-                        # for i in [1]:
-                            # n = self.groups_len[i] - 1
+        offset_channels_n = self.rgb_channels_n + self.bg_channel_n + self.depth_channel_n
 
-                            # certain labels should not contribute to the calculation of the label loss values
-                            # fixed_labels = (cp.tile(cp.array([1] + [-100] * n), (batchsize, 1)) * masks_flipped[i][:, cp.newaxis])
-                            # out_labels[i] = out_labels[i] * cp.array(masks[i][:, cp.newaxis]) + fixed_labels
+        for obj_idx in range(self.objects_n):
 
-                            label_obj_acc += F.accuracy(out_obj_labels[i], cp.array(in_obj_labels[:, i])) / (k * self.objects_n)
-                            label_obj_loss += F.softmax_cross_entropy(out_obj_labels[i], cp.array(in_obj_labels[:, i])) / denom
-
-                        # for i in [-3, -2, -1]:
-                        #     label_obj_loss += F.sum(F.squared_error(in_spat_labels[:, i], latents[0][:, i]))
-                    else:
-                        label_obj_loss = chainer.Variable(cp.zeros(1).astype(cp.float32))
-                        label_obj_acc = chainer.Variable(cp.zeros(1).astype(cp.float32))
-
-
-            #########################################
-            ############# RELATIONAL LABELS #########
-            #########################################
-
-            latent_concat = F.concat((latents), axis=1)
-            mus_rel = []
-            ln_vars_rel = []
-
-            for i in range(self.groups_rel_n):
-                mu_rel, ln_var_rel = self.operators[i](latent_concat)
-                mus_rel.append(mu_rel)
-                ln_vars_rel.append(ln_var_rel)
-
-            mus_rel = F.concat((mus_rel), axis=1)
-            ln_vars_rel = F.concat((ln_vars_rel), axis=1)
-
-            latent_rel = F.gaussian(mus_rel, ln_vars_rel)
-            out_rel_labels = self.predict_rel_label(latent_rel, softmax=False)
-
+            rec_mask = in_img[:,obj_idx + offset_channels_n][:, None, :, :]
 
             # KL TERM
             if self.beta != 0:
-                kl += gaussian_kl_divergence(mus_rel, ln_vars_rel) / batchsize
+                kl += gaussian_kl_divergence(mus[obj_idx], ln_vars[obj_idx]) / denom
             else:
                 kl = chainer.Variable(cp.zeros(1).astype(cp.float32))
 
-            if self.gamma_rel != 0:
 
-                for i in range(self.groups_rel_n):
-                    # n = self.groups_len[i] - 1
-
-                    # certain labels should not contribute to the calculation of the label loss values
-                    # fixed_labels = (cp.tile(cp.array([1] + [-100] * n), (batchsize, 1)) * masks_flipped[i][:, cp.newaxis])
-                    # out_rel_labels[i] = out_rel_labels[i] * cp.array(masks[i][:, cp.newaxis]) + fixed_labels
-
-                    label_rel_acc += F.accuracy(out_rel_labels[i], cp.array(in_rel_labels[:, i])) / k
-                    # label_rel_loss += F.softmax_cross_entropy(out_rel_labels[i], cp.array(in_rel_labels[:, i])) / (k * non_masked[i])
-                    label_rel_loss += F.softmax_cross_entropy(out_rel_labels[i], cp.array(in_rel_labels[:, i])) / (k * batchsize)
-            else:
-                label_rel_loss = chainer.Variable(cp.zeros(1).astype(cp.float32))
-                label_rel_acc = chainer.Variable(cp.zeros(1).astype(cp.float32))
-
-            #########################################
-            ############# RELATIONAL LABELS #########
-            #########################################
+            # RESAMPLING
+            for l in six.moves.range(k):          
                 
-            self.total_corr = chainer.Variable(cp.zeros(1).astype(cp.float32))
+                # latents = []
+                # for _ in range(self.objects_n):
+                #     latents.append(F.gaussian(mus[obj_idx], ln_vars[obj_idx]))
 
-            self.rec_loss = self.alpha * rec_loss
-            self.kl = self.beta * kl
-            self.label_obj_loss = self.gamma_obj * label_obj_loss
-            self.label_obj_acc = label_obj_acc
-            self.label_rel_loss = self.gamma_rel * label_rel_loss
-            self.label_rel_acc = label_rel_acc
+                # RECONSTRUCTION TERM
+                if self.alpha != 0:
+                    out_img = self.spatial_decode(latents[obj_idx], sigmoid=False)
 
-            self.loss = chainer.Variable(cp.zeros(1).astype(cp.float32))
+                    x_true = in_img[:, :self.rgb_channels_n + self.depth_channel_n]
+                    x_pred = out_img[:, :self.rgb_channels_n + self.depth_channel_n]
+                    rec_loss += F.sum(F.bernoulli_nll(x_true, x_pred, reduce="no") * rec_mask) / denom
+
+                    x_true = in_img[:, obj_idx + offset_channels_n]
+                    x_pred = out_img[:, 4]
+                    rec_loss += F.bernoulli_nll(x_true, x_pred) / denom
+
+                else:
+                    rec_loss = chainer.Variable(cp.zeros(1).astype(cp.float32))
             
-            if self.alpha:
-                self.loss += self.rec_loss
-            if self.beta:
-                self.loss += self.kl
-            if self.gamma_obj:
-                self.loss += self.label_obj_loss
-            if self.gamma_rel:
-                self.loss += self.label_rel_loss
-                # self.loss += self.total_corr
+                # OBJECT CLASSIFICATION TERM
+                if self.gamma_obj != 0:
+
+                    out_obj_labels = self.predict_obj_label(latents[obj_idx], softmax=False)
+                    in_obj_labels = object_labels[:, obj_idx, :self.groups_obj_n].astype(cp.int32)
+                    masks = object_label_masks[:, obj_idx].astype(cp.float32)
+
+                    for i in range(self.groups_obj_n):
+                        
+                        o_mask = masks[:, i].astype(cp.float32)
+
+                        if F.sum(o_mask).data == 0:
+                            continue
+
+                        label_obj_loss += F.sum(F.softmax_cross_entropy(out_obj_labels[i], in_obj_labels[:, i], reduce='no') * o_mask) / (k * F.sum(o_mask) * self.objects_n)
+                        
+                        in_aug_obj_labels = (in_obj_labels[:, i] * o_mask + (100*(1 - o_mask))).astype(cp.int32)
+                        label_obj_acc += F.accuracy(out_obj_labels[i], in_aug_obj_labels, ignore_label=100) / (k * self.objects_n)
+
+                    # in_spat_labels = object_labels[:, obj_idx, self.groups_obj_n:].astype(cp.float32)
+                    # for i in [-3, -2, -1]:
+                    #     label_obj_loss += F.sum(F.squared_error(in_spat_labels[:, i], latents[0][:, i]) * o_mask) / (k * F.sum(o_mask) * self.objects_n)
+                else:
+                    label_obj_loss = chainer.Variable(cp.zeros(1).astype(cp.float32))
+                    label_obj_acc = chainer.Variable(cp.zeros(1).astype(cp.float32))
+
+
+        #########################################
+        ############# RELATIONAL LABELS #########
+        #########################################
+
+        latent_concat = F.concat((latents), axis=1)
+        mus_rel = []
+        ln_vars_rel = []
+
+        for i in range(self.groups_rel_n):
+            mu_rel, ln_var_rel = self.operators[i](latent_concat)
+            mus_rel.append(mu_rel)
+            ln_vars_rel.append(ln_var_rel)
+
+        mus_rel = F.concat((mus_rel), axis=1)
+        ln_vars_rel = F.concat((ln_vars_rel), axis=1)
+
+        latent_rel = F.gaussian(mus_rel, ln_vars_rel)
+        out_rel_labels = self.predict_rel_label(latent_rel, softmax=False)
+
+
+        # KL TERM
+        if self.beta != 0:
+            kl += gaussian_kl_divergence(mus_rel, ln_vars_rel) / batchsize
+        else:
+            kl = chainer.Variable(cp.zeros(1).astype(cp.float32))
+
+        if self.gamma_rel != 0:
+
+            # for i in range(self.groups_rel_n):
+            for i in [3]:
+
+                r_mask = rel_masks[:, i].astype(cp.float32)
+
+                if F.sum(r_mask).data == 0:
+                    continue 
+
+                label_rel_loss += F.sum(F.softmax_cross_entropy(out_rel_labels[i], in_rel_labels[:, i], reduce='no') * r_mask) / (k * F.sum(r_mask))
+                
+                in_aug_rel_labels = (in_rel_labels[:, i] * r_mask + (100*(1 - r_mask))).astype(cp.int32)
+                label_rel_acc += F.accuracy(out_rel_labels[i], in_aug_rel_labels, ignore_label=100) / (k)
+        else:
+            label_rel_loss = chainer.Variable(cp.zeros(1).astype(cp.float32))
+            label_rel_acc = chainer.Variable(cp.zeros(1).astype(cp.float32))
+
+        #########################################
+        ############# RELATIONAL LABELS #########
+        #########################################
             
-            return self.loss, self.rec_loss, self.kl, self.label_obj_loss, self.label_obj_acc, self.label_rel_loss, self.label_rel_acc
+        self.total_corr = chainer.Variable(cp.zeros(1).astype(cp.float32))
+
+        self.rec_loss = self.alpha * rec_loss
+        self.kl = self.beta * kl
+        self.label_obj_loss = self.gamma_obj * label_obj_loss
+        self.label_obj_acc = label_obj_acc
+        self.label_rel_loss = self.gamma_rel * label_rel_loss
+        self.label_rel_acc = label_rel_acc
+
+        self.loss = chainer.Variable(cp.zeros(1).astype(cp.float32))
         
-        return lf
+        if self.alpha:
+            self.loss += self.rec_loss
+        if self.beta:
+            self.loss += self.kl
+        if self.gamma_obj:
+            self.loss += self.label_obj_loss
+        if self.gamma_rel:
+            self.loss += self.label_rel_loss
+
+
+        chainer.report({'loss': self.loss}, self)
+        chainer.report({'rec_l': self.rec_loss}, self)
+        chainer.report({'kl': self.kl}, self)
+        chainer.report({'obj_l': self.label_obj_loss}, self)
+        chainer.report({'obj_a': self.label_obj_acc}, self)
+        chainer.report({'rel_l': self.label_rel_loss}, self)
+        chainer.report({'rel_a': self.label_rel_acc}, self)
+        
+
+
+        # return self.loss, self.rec_loss, self.kl, self.label_obj_loss, self.label_obj_acc, self.label_rel_loss, self.label_rel_acc
+        return self.loss
+
+        # return lf
 
