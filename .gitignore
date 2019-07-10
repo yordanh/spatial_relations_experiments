@@ -133,3 +133,13 @@ result*
 # ignore pr2 dependencies for picknplace and talking
 pr2_picknplace*
 pr2_head*
+
+learning_experiments/notebooks/*
+
+*log
+*.trainer
+*.txt
+*.png
+*.npy
+*.tar
+*.tar.gz
