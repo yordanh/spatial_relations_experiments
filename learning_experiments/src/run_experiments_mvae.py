@@ -16,17 +16,17 @@ import os.path as osp
 import json
 import shutil
 
-epochs_arr = ['50']
+epochs_arr = ['25']
 gammas_obj = ['50000']
 gammas_rel = ['50000']
-betas = ['1']
+betas = ['10']
 alphas = ['1']
 dimz_arr = ['8']
-batchsizes = ['16']
+batchsizes = ['32']
 objects_n_arr = ['2']
 n_experiments = 1
 
-BASE_DIR = "multi_result"
+BASE_DIR = "multi_result_clevr_exp"
 for folder in os.listdir(BASE_DIR):
 	shutil.rmtree(osp.join(BASE_DIR, folder))
 

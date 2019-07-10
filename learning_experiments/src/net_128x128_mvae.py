@@ -54,7 +54,7 @@ class Operator(chainer.Chain):
 
     def encode(self, z_concat):
 
-        z_tmp0 = F.relu(self.operator_0(z_concat))
+        z_tmp0 = F.dropout(F.relu(self.operator_0(z_concat)), ratio=0)
         # z_tmp1 = F.dropout(F.relu(self.operator_1(z_tmp0)), ratio=0.5)
         
         # mu = self.operator_mu(z_tmp1)
@@ -107,7 +107,7 @@ class Conv_MVAE(chainer.Chain):
             self.classifiers_rel = chainer.ChainList()
             self.classifiers_obj = chainer.ChainList()
 
-            self.conv_channels = [32,32,32,64,64,64]
+            self.conv_channels = [32,32,64,64,64,64]
             self.dense_channels = [1024,256]
 
             ########################
@@ -169,6 +169,22 @@ class Conv_MVAE(chainer.Chain):
             self.sp_dec_0 = L.Convolution2D(64, 5, ksize=3, pad=1)
 
 
+            # Add these to be able to disable them later
+            self.encoder = [self.encoder_conv_0,
+                            self.encoder_conv_1,
+                            self.encoder_conv_2,
+                            self.encoder_conv_3,
+                            self.encoder_conv_4,
+                            self.encoder_conv_5,
+                            self.encoder_dense_0,
+                            self.encoder_mu,
+                            self.encoder_ln_var]
+
+            self.decoder = [self.sp_dec_3,
+                            self.sp_dec_2,
+                            self.sp_dec_1,
+                            self.sp_dec_0]
+
     def __call__(self, x):
 
         latents = []
@@ -181,8 +197,8 @@ class Conv_MVAE(chainer.Chain):
         for obj_idx in range(offset_channels_n, self.objects_n + offset_channels_n):
             rec_mask = in_img[:,obj_idx][:, None, :, :]
 
-            rec_mask[rec_mask == 0.25] = 0
-            rec_mask[rec_mask == 0.75] = 1
+            # rec_mask[rec_mask == 0.25] = 0
+            # rec_mask[rec_mask == 0.75] = 1
 
             # latent, mu, ln_var = self.encode(in_img[:, :3])
             latent, mu, ln_var = self.encode(F.concat((in_img[:, :4], rec_mask), axis=1))
@@ -324,9 +340,7 @@ class Conv_MVAE(chainer.Chain):
         for obj_idx in range(offset_channels_n, self.objects_n + offset_channels_n):
             rec_mask = in_img[:, obj_idx][:, None, :, :]
 
-            # latent, mu, ln_var = self.encode(in_img[:, :3])
             latent, mu, ln_var = self.encode(F.concat((in_img[:, :4], rec_mask), axis=1))
-            # latent, mu, ln_var = self.encode(rec_mask)
 
             mus.append(mu)
             ln_vars.append(ln_var)
@@ -345,12 +359,15 @@ class Conv_MVAE(chainer.Chain):
         mus = []
         ln_vars = []
 
-        latents, _, _ = self.get_latent_indiv(x)
+        latents, mus_obj, _ = self.get_latent_indiv(x)
 
         latent_concat = F.concat((latents), axis=1)
+        # latent_concat = F.concat((mus_obj), axis=1)
 
         for i in range(self.groups_rel_n):
+            
             mu, ln_var = self.operators[i](latent_concat)
+            
             mus.append(mu)
             ln_vars.append(ln_var)
 
@@ -432,10 +449,14 @@ class Conv_MVAE(chainer.Chain):
                     masks = object_label_masks[:, obj_idx].astype(cp.float32)
 
                     for i in range(self.groups_obj_n):
+                    # for i in [1]:
                         
                         o_mask = masks[:, i].astype(cp.float32)
 
                         if F.sum(o_mask).data == 0:
+                            # print("ALL UNLABELLED")
+                            label_obj_loss += 0
+                            label_obj_acc += 1 / (k * self.objects_n)
                             continue
 
                         label_obj_loss += F.sum(F.softmax_cross_entropy(out_obj_labels[i], in_obj_labels[:, i], reduce='no') * o_mask) / (k * F.sum(o_mask) * self.objects_n)
@@ -479,12 +500,13 @@ class Conv_MVAE(chainer.Chain):
 
         if self.gamma_rel != 0:
 
-            # for i in range(self.groups_rel_n):
-            for i in [3]:
+            for i in range(self.groups_rel_n):
+            # for i in [0, 1, 2, 3]:
 
                 r_mask = rel_masks[:, i].astype(cp.float32)
-
                 if F.sum(r_mask).data == 0:
+                    label_rel_loss += 0
+                    label_rel_acc += 1
                     continue 
 
                 label_rel_loss += F.sum(F.softmax_cross_entropy(out_rel_labels[i], in_rel_labels[:, i], reduce='no') * r_mask) / (k * F.sum(r_mask))

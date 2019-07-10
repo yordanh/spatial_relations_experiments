@@ -36,7 +36,6 @@ from chainer import serializers
 # Sibling Modules
 import net_128x128_mvae as net
 import data_generator_mvae as data_generator
-from config_parser import ConfigParser
 from utils import *
 
 
@@ -96,9 +95,9 @@ def main():
 
     models_folder = os.path.join(args.output_dir, "models")
 
-    n_obj = 3
+    n_obj = 4
     folder = 'clevr_data_128_'+str(n_obj)+'_obj'
-    folder_names = [osp.join(folder, folder+'_'+str(i)) for i in range(145, 150)]
+    folder_names = [osp.join(folder, folder+'_'+str(i)) for i in range(150, 170)]
 
     # n_obj = 3
     # folder = 'clevr_data_128_'+str(n_obj)+'_obj'
@@ -179,39 +178,44 @@ def main():
                                        device=args.gpu)
 
     trainer = training.Trainer(updater, (args.epochs, 'epoch'), out=args.output_dir)
-    trainer.extend(extensions.Evaluator(test_iter, model, eval_func=model.lf, device=args.gpu), trigger=(1, 'epoch'))
+    trainer.extend(extensions.Evaluator(test_iter, model, eval_func=model.lf, device=args.gpu), name="val", trigger=(1, 'epoch'))
     trainer.extend(extensions.LogReport(trigger=(1, 'epoch')))
-    trainer.extend(extensions.PrintReport(['epoch', \
-                                           'main/rec_l', 'validation/main/rec_l', \
-                                           'validation/main/kl', \
-                                           'main/obj_a','validation/main/obj_a', \
-                                           'main/rel_a','validation/main/rel_a', \
-                                           # 'main/obj_l','main/rel_l',\
-                                           'validation/main/obj_l','validation/main/rel_l']))
+    trainer.extend(extensions.PrintReport([
+                                           'epoch', \
+                                           'main/rec_l', 'val/main/rec_l', \
+                                           'val/main/kl', \
+                                           'main/obj_a','val/main/obj_a', \
+                                           'main/rel_a','val/main/rel_a', \
+                                           'main/obj_l', \
+                                           'val/main/obj_l', \
+                                           'main/rel_l',\
+                                           'val/main/rel_l']))
     trainer.extend(extensions.PlotReport(['main/rec_l', \
-                                          'validation/main/rec_l'], \
+                                          'val/main/rec_l'], \
                                            x_key='epoch', file_name='rec_loss.png', marker=None))
     trainer.extend(extensions.PlotReport(['main/kl', \
-                                          'validation/main/kl'], \
+                                          'val/main/kl'], \
                                            x_key='epoch', file_name='kl.png', marker=None))
     trainer.extend(extensions.PlotReport(['main/obj_a', \
-                                          'validation/main/obj_a'], \
+                                          'val/main/obj_a'], \
                                            x_key='epoch', file_name='object_acc.png', marker=None))
     trainer.extend(extensions.PlotReport(['main/obj_l', \
-                                          'validation/main/obj_l'], \
+                                          'val/main/obj_l'], \
                                            x_key='epoch', file_name='object_loss.png', marker=None))
     trainer.extend(extensions.PlotReport(['main/rel_a', \
-                                          'validation/main/rel_a'], \
+                                          'val/main/rel_a'], \
                                            x_key='epoch', file_name='relation_acc.png', marker=None))
     trainer.extend(extensions.PlotReport(['main/rel_l', \
-                                          'validation/main/rel_l'], \
+                                          'val/main/rel_l'], \
                                            x_key='epoch', file_name='relation_loss.png', marker=None))
     # trainer.extend(extensions.dump_graph('main/loss'))
     trainer.extend(extensions.ProgressBar(update_interval=10))
     trainer.extend(extensions.FailOnNonNumber())
     trainer.extend(extensions.snapshot(filename='snapshot_epoch_{.updater.epoch}.trainer'), trigger=(args.epochs, 'epoch'))
+    trainer.extend(extensions.snapshot_object(model, filename='snapshot_epoch_{.updater.epoch}.model'), trigger=(10, 'epoch'))
     trainer.extend(extensions.snapshot_object(model, 'final.model'), trigger=(args.epochs, 'epoch'))
-    trainer.extend(model.check_loss_coefficients(), trigger=(1, 'epoch'))
+    # trainer.extend(model.check_loss_coefficients(), trigger=(1, 'epoch'))
+    trainer.extend(extensions.ExponentialShift('alpha', 0.5, init=1e-3, target=1e-8), trigger=(args.epochs/2, 'epoch')) # For Adam
 
     trainer.run()
 

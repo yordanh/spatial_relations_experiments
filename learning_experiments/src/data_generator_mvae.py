@@ -21,16 +21,12 @@ from mpl_toolkits.mplot3d import Axes3D
 
 from chainer.datasets import TupleDataset
 
-from config_parser import ConfigParser
-from spatial_augmenter import SpatialAugmenter
-
 class DataGenerator(object):
     def __init__(self, label_mode=None, augment_counter=0, folder_names=["clevr_data"], data_split=0.8):
         self.label_mode = label_mode
         self.augment_counter = augment_counter
         self.folder_names = folder_names
         self.data_split = data_split
-        self.augmenter = SpatialAugmenter()
 
     def generate_dataset(self, ignore=["unlabelled"], args=None):
         
@@ -52,13 +48,14 @@ class DataGenerator(object):
                            ['left', 'right'], 
                            ['above', 'below'],
                            ["close", "far"],
-                           ["on", "off"]]
+                           ["on", "off"],
+                           ['in', 'out']]
 
-        # object_colors = ['red', 'blue', 'yellow', 'green']
-        object_colors = ['red', 'blue']
+        object_colors = ['red', 'blue', 'yellow', 'green', 'gray']
+        # object_colors = ['red', 'blue']
         object_sizes = ['large', 'small']
-        # object_shapes = ['sphere', 'cube', 'cylinder']
-        object_shapes = ['cube', 'cylinder']
+        object_shapes = ['sphere', 'cube', 'cylinder', 'tray']
+        # object_shapes = ['cube', 'cylinder']
 
         # self.groups_rel = {0 : possible_groups[0],
         #                1 : possible_groups[1],
@@ -69,8 +66,8 @@ class DataGenerator(object):
                        1 : object_shapes,
                        2 : object_sizes}
         
-        print(self.groups_rel)
-        print(self.groups_obj)
+        # print(self.groups_rel)
+        # print(self.groups_obj)
 
         train = []
         train_labels = []
@@ -97,9 +94,6 @@ class DataGenerator(object):
             folder_name_train_arr = osp.join(folder_name, "train", "arr")
             folder_name_train_scenes = osp.join(folder_name, "train", "scenes")
 
-            folder_name_unseen = osp.join(folder_name, "unseen")
-            folder_name_unlabelled = osp.join(folder_name, "unlabelled")
-
             array_list_train = sorted(os.listdir(folder_name_train_arr))[:]
 
             number_of_pcs = len(array_list_train)
@@ -112,6 +106,13 @@ class DataGenerator(object):
             train_files = np.take(array_list_train, train_indecies)
             test_files = np.take(array_list_train, test_indecies)
 
+            unseen.append([])
+            unseen_labels.append([])
+            unseen_vectors.append([])
+            unseen_masks.append([])
+            unseen_object_vectors.append([])
+            unseen_object_vector_masks.append([])
+
             if "train" not in ignore:
                 for array_name in array_list_train:
 
@@ -120,6 +121,9 @@ class DataGenerator(object):
                     json_data = json.load(scene_file)
                     scene_objs = json_data['objects']
                     rels = json_data['relationships']
+
+                    # if len([x for x in rels['in'] if x != []]) == 0 and len([x for x in rels['out'] if x != []]) == 0:
+                    #     continue 
 
                     if (array_list_train.index(array_name)) == 0:
                         print("Processing FOLDER {0}".format(folder_name))
@@ -145,11 +149,15 @@ class DataGenerator(object):
                     overlapping_objects = []
                     for i, obj in enumerate(scene_objs):
                         mask_tmp = mask.copy()
-                        pixel_coords = obj['pixel_coords'][:2]
-                        pixel_coords = [127 if x > 127 else x for x in pixel_coords]
-                        pixel_coords = [0 if x < 0 else x for x in pixel_coords]
+                        if 'mask_color' in obj:
+                            obj_pixel_val = (np.array(obj['mask_color']) * 255).astype(np.uint8)
+                        else:
+                            pixel_coords = obj['pixel_coords'][:2]
+                            pixel_coords = [127 if x > 127 else x for x in pixel_coords]
+                            pixel_coords = [0 if x < 0 else x for x in pixel_coords]
 
-                        obj_pixel_val = mask_tmp[pixel_coords[1], pixel_coords[0]]
+                            obj_pixel_val = mask_tmp[pixel_coords[1], pixel_coords[0]]
+
                         obj_pixel_vals.append(list(obj_pixel_val))
 
                         object_masks[i] = (mask_tmp == obj_pixel_val).all(axis=2).astype(np.uint8)
@@ -162,17 +170,18 @@ class DataGenerator(object):
                         box_exp = []
                         # print(box)
 
+                        offset = 2
                         # for i, box in box_dict.items():
-                        new_x = box[0] - 2 if box[0] >= 2 else 0
+                        new_x = box[0] - offset if box[0] >= offset else 0
                         box_exp.append(new_x)
 
-                        new_y = box[1] - 2 if box[1] >= 2 else 0
+                        new_y = box[1] - offset if box[1] >= offset else 0
                         box_exp.append(new_y)
 
-                        new_w = box[2] + 2 if new_x + box[2] <= 127 else 127 - new_x
+                        new_w = box[2] + 2*offset if new_x + box[2] <= 127 else 127 - new_x
                         box_exp.append(new_w)
 
-                        new_h = box[3] + 2 if new_y + box[3] <= 127 else 127 - new_y
+                        new_h = box[3] + 2*offset if new_y + box[3] <= 127 else 127 - new_y
                         box_exp.append(new_h)
 
                         # print(box_exp)
@@ -182,31 +191,10 @@ class DataGenerator(object):
                         bg_pixel_coords = [0, 0]
                         bg_pixel_val = list(mask_tmp[bg_pixel_coords[1], bg_pixel_coords[0]])
 
-                        tmp = np.logical_and((obj_box != obj_pixel_val).all(axis=2), (obj_box != bg_pixel_val).all(axis=2)).astype(np.int32)
-                        # print(i, np.sum(tmp))
-                        if np.sum(tmp) > 50:
-                            # print("OVERLAP!!", np.sum(tmp))
-                            overlapping_objects.append(i)
-
-                        # object_masks[i] *= 255
-                        # cv2.rectangle(object_masks[i], (box_exp[0], box_exp[1]), (box_exp[0] + box_exp[2], box_exp[1] + box_exp[3]), 127,  thickness=1)
-                        # cv2.imshow("mask " + str(i), object_masks[i])
-                        # cv2.imshow("cropped mask " + str(i), obj_box * 255)
-                        # cv2.waitKey()
+                        tmp = np.logical_and((obj_box != obj_pixel_val).any(axis=2), (obj_box != bg_pixel_val).any(axis=2)).astype(np.int32)
 
                     if big_mask_flag:
-                        print("BIG MASKING; SKIP")
-                        continue
-
-                    # sometimes the center of an object is occluded by another object
-                    # leading to the occluded object having the mask pixel value of the
-                    # object occluding it
-                    if len(set(tuple(x) for x in obj_pixel_vals)) != len(scene_objs):
-                        # print(obj_pixel_vals)
-                        print("OCCLUDED OBJECT MASK; SKIP", array_name)
-                        # cv2.imshow("bgr", (bgr * 255).astype(np.uint8))
-                        # cv2.imshow("mask", (mask * 255).astype(np.uint8))
-                        # cv2.waitKey()
+                        print("TOO BIG MASK; SKIP")
                         continue
 
                     mask_tmp = mask.copy()
@@ -232,7 +220,6 @@ class DataGenerator(object):
                             for target_idx in target_list:
                                 rel_index[ref_idx][target_idx][group_idx] = rel_name
 
-
                     ###########################################
                     ####### TMP FIX; TODO:REMOVE ##############
                     ###########################################
@@ -252,12 +239,11 @@ class DataGenerator(object):
                             bg = cv2.resize(object_masks['bg'].copy(), (0,0), fx=scale, fy=scale)
                             ref = cv2.resize(object_masks[ref_idx].copy(), (0,0), fx=scale, fy=scale)
                             ref = ref.astype(np.float32)
-                            # ref[ref == 0] = 0.01
-                            # ref[ref == 1] = 0.9
                             tar = cv2.resize(object_masks[target_idx].copy(), (0,0), fx=scale, fy=scale)
                             tar = tar.astype(np.float32)
-                            # tar[tar == 0] = 0.01
-                            # tar[tar == 1] = 0.9
+
+                            if np.sum(tar) == 0 or np.sum(ref) == 0 or (ref == tar).all():
+                                continue
 
                             pixels = np.concatenate((color, depth[...,None], bg[...,None], ref[...,None], tar[...,None]), axis=2)
 
@@ -269,10 +255,6 @@ class DataGenerator(object):
                                 vector = []
 
                                 for i, rel_name in enumerate(rel_list):
-
-                                    # if np.random.rand() > 0.5:
-                                    #     rel_name = "unlabelled"
-                                    #     train_labels[-1][i] = "unlabelled"
 
                                     if rel_name != "unlabelled":
                                         vector.append(self.groups_rel[i].index(rel_name))
@@ -320,10 +302,6 @@ class DataGenerator(object):
 
                                 for i, rel_name in enumerate(rel_list):
 
-                                    # if np.random.rand() > 0.5:
-                                    #     rel_name = "unlabelled"
-                                    #     test_labels[-1][i] = "unlabelled"
-
                                     if rel_name != "unlabelled":
                                         vector.append(self.groups_rel[i].index(rel_name))
                                         mask.append(1)
@@ -370,8 +348,8 @@ class DataGenerator(object):
                     scene_objs = json_data['objects']
                     rels = json_data['relationships']
 
-                    if (array_list_train.index(array_name)) == 0:
-                        print("Processing FOLDER {0}".format(folder_name))
+                    # if (array_list_train.index(array_name)) == 0:
+                    #     print("Processing FOLDER {0}".format(folder_name))
 
                     bgr = (data[...,:3] * 255).astype(np.uint8)
                     bgr = cv2.cvtColor(bgr, cv2.COLOR_RGB2BGR)
@@ -389,12 +367,15 @@ class DataGenerator(object):
                     bad_mask_flag = False
 
                     for i, obj in enumerate(scene_objs):
-                        mask_tmp = mask.copy()
-                        pixel_coords = obj['pixel_coords'][:2]
-                        pixel_coords = [127 if x > 127 else x for x in pixel_coords]
-                        pixel_coords = [0 if x < 0 else x for x in pixel_coords]
+                        if 'mask_color' in obj:
+                            obj_pixel_val = obj['mask_color']
+                        else:
+                            mask_tmp = mask.copy()
+                            pixel_coords = obj['pixel_coords'][:2]
+                            pixel_coords = [127 if x > 127 else x for x in pixel_coords]
+                            pixel_coords = [0 if x < 0 else x for x in pixel_coords]
 
-                        obj_pixel_val = mask_tmp[pixel_coords[1], pixel_coords[0]]
+                            obj_pixel_val = mask_tmp[pixel_coords[1], pixel_coords[0]]
                         obj_pixel_vals.append(list(obj_pixel_val))
 
                         object_masks[i] = (mask_tmp == obj_pixel_val).all(axis=2).astype(np.uint8)
@@ -452,25 +433,17 @@ class DataGenerator(object):
                             bg = cv2.resize(object_masks['bg'].copy(), (0,0), fx=scale, fy=scale)
                             ref = cv2.resize(object_masks[ref_idx].copy(), (0,0), fx=scale, fy=scale)
                             ref = ref.astype(np.float32)
-                            # ref[ref == 0] = 0.01
-                            # ref[ref == 1] = 0.9
                             tar = cv2.resize(object_masks[target_idx].copy(), (0,0), fx=scale, fy=scale)
                             tar = tar.astype(np.float32)
-                            # tar[tar == 0] = 0.01
-                            # tar[tar == 1] = 0.9
 
                             pixels = np.concatenate((color, depth[...,None], bg[...,None], ref[...,None], tar[...,None]), axis=2)
                                 
-                            unseen += [pixels]
-                            unseen_labels.append(rel_list)
+                            unseen[-1] += [pixels]
+                            unseen_labels[-1].append(rel_list)
                             mask = []
                             vector = []
 
                             for i, rel_name in enumerate(rel_list):
-
-                                # if np.random.rand() > 0.5:
-                                #     rel_name = "unlabelled"
-                                #     unseen_labels[-1][i] = "unlabelled"
 
                                 if rel_name != "unlabelled":
                                     vector.append(self.groups_rel[i].index(rel_name))
@@ -479,43 +452,24 @@ class DataGenerator(object):
                                     vector.append(0)
                                     mask.append(0)
 
-                            unseen_masks.append(mask)
-                            unseen_vectors.append(vector)
+                            unseen_masks[-1].append(mask)
+                            unseen_vectors[-1].append(vector)
 
-                            unseen_object_vectors.append([])
-                            unseen_object_vector_masks.append([])
+                            unseen_object_vectors[-1].append([])
+                            unseen_object_vector_masks[-1].append([])
                             for idx in [ref_idx, target_idx]:
                                 color = scene_objs[idx]['color']
                                 size = scene_objs[idx]['size']
                                 shape = scene_objs[idx]['shape']
                                 coords = scene_objs[idx]['3d_coords']
-                                unseen_object_vectors[-1].append([object_colors.index(color),\
+                                unseen_object_vectors[-1][-1].append([object_colors.index(color),\
                                                                  object_shapes.index(shape),\
                                                                  object_sizes.index(size),\
                                                                  coords[0],\
                                                                  coords[1],\
                                                                  coords[2]])
-                                unseen_object_vector_masks[-1].append([1,1,1])
+                                unseen_object_vector_masks[-1][-1].append([1,1,1])
 
-
-        # print(np.array(train_b0).shape)
-        # print("Train Vectors Shape: {}".format(np.array(train_vectors).shape))
-        # print("Train Vectors: {}".format(np.array(train_vectors)))
-        # print("Train Labels Shape: {}".format(np.array(train_labels).shape))
-        # print("Train Labels: {}".format(np.array(train_labels)))
-        # print("Train Masks Shape: {}".format(np.array(train_masks).shape))
-        # print("Train Masks: {}".format(np.array(train_masks)))
-
-        # print("Test Vectors: {}".format(np.array(test_vectors)))
-        # print("Test Labels: {}".format(np.array(test_labels)))
-        # print("Test Masks: {}".format(np.array(test_masks)))
-        # print("Test Vectors: {}".format(np.array(test_vectors).shape))
-        # print("Test Labels: {}".format(np.array(test_labels).shape))
-        # print("Test Masks: {}".format(np.array(test_masks).shape))
-
-        # print("Unseen Vectors: {}".format(np.array(unseen_vectors)))
-        # print("Unseen Labels: {}".format(np.array(unseen_labels)))
-                
         train = np.array(train, dtype=np.float32)
         train_labels = np.array(train_labels)
         train_vectors = np.array(train_vectors)
@@ -539,10 +493,11 @@ class DataGenerator(object):
 
         train = train.reshape([len(train)] + data_dimensions)
         test = test.reshape([len(test)] + data_dimensions)
-        unseen = unseen.reshape([len(unseen)] + data_dimensions)
+        # unseen = unseen.reshape([len(unseen)] + data_dimensions)
         train = np.swapaxes(train, 1 ,3)
         test = np.swapaxes(test, 1 ,3)
-        unseen = np.swapaxes(unseen, 1 ,3)
+        if unseen != []:
+            unseen = np.swapaxes(unseen, 2 ,4)
 
         train_concat = TupleDataset(train, train_vectors, train_masks, \
                                     train_object_vectors, train_object_vector_masks)
@@ -605,57 +560,30 @@ class DataGenerator(object):
         # plt.show()
 
 
+        # print(unseen.shape)
+        # # print(unseen_concat.shape)
+        # for i,x in enumerate(unseen[0]):
 
-        # print("train", train.shape)
-        # print("train_labels", train_labels.shape)
-        # print("train_vectors", train_vectors.shape)
-        # print("train_masks", train_masks.shape)
-        # print("train_masks_and_vectors", train_masks_and_vectors.shape)
+        #     if i % 6 != 0:
+        #         continue
 
-        # for i,x in enumerate(train_concat):
-
-        #     image = x[0]
+        #     image = x
         #     image = np.swapaxes(image, 0 ,2)
 
         #     bgr = image[...,:3]
-        #     depth = image[...,3]
-        #     mask_rel = image[...,4]
-        #     mask_rec = image[...,5]
+        #     bg = image[...,4]
+        #     mask_obj_ref = image[...,5]
+        #     mask_obj_tar = image[...,6]
 
-        #     mask = x[1 : 1 + 2]
-        #     vector = x[1+2 : ]
-        #     print("groups", self.groups)   
-        #     print("labels", train_labels[i])
+        #     vector = unseen_vectors[0][i]
+        #     mask = unseen_masks[0][i]
 
-        #     print("masks", mask)
-        #     print("Vectors", vector)
+        #     object_vectors = unseen_object_vectors[0][i]
+        #     object_vector_masks = unseen_object_vector_masks[0][i]
 
-        #     cv2.imshow("bgr", (bgr*255).astype(np.uint8))
-        #     cv2.imshow("depth", (depth*255).astype(np.uint8))
-        #     cv2.imshow("mask_rel", (mask_rel*255).astype(np.uint8))
-        #     cv2.imshow("mask_rec", (mask_rec*255).astype(np.uint8))
-        #     cv2.waitKey()
+        #     print("Labels", unseen_labels[0][i])
 
-        # for i,x in enumerate(train_concat):
-
-        #     image = x[0]
-        #     image = np.swapaxes(image, 0 ,2)
-
-        #     bgr = image[...,:3]
-        #     bg = image[...,3]
-        #     mask_obj_ref = image[...,4]
-        #     mask_obj_tar = image[...,5]
-
-        #     mask = x[1]
-        #     vector = x[2]
-
-        #     object_vectors = x[3]
-        #     object_vector_masks = x[4]
-
-        #     print("groups", self.groups)   
-        #     print("labels", train_labels[i])
-
-        #     print("masks", mask)
+        #     print("Masks", mask)
         #     print("Vectors", vector)
 
         #     print("Object vectors", object_vectors)
@@ -663,15 +591,44 @@ class DataGenerator(object):
 
         #     cv2.imshow("bgr", (bgr*255).astype(np.uint8))
         #     cv2.imshow("bg", (bg*255).astype(np.uint8))
-        #     cv2.imshow("mask_obj_ref", (mask_obj_ref*255).astype(np.uint8))
-        #     cv2.imshow("mask_obj_tar", (mask_obj_tar*255).astype(np.uint8))
+        #     cv2.imshow("ref", (mask_obj_ref*255).astype(np.uint8))
+        #     cv2.imshow("tar", (mask_obj_tar*255).astype(np.uint8))
         
         #     cv2.waitKey()
 
-        #     cv2.imwrite("bgr.png", (bgr*255).astype(np.uint8))
-        #     cv2.imwrite("bg.png", (bg*255).astype(np.uint8))
-        #     cv2.imwrite("mask_obj_ref.png", (mask_obj_ref*255).astype(np.uint8))
-        #     cv2.imwrite("mask_obj_tar.png", (mask_obj_tar*255).astype(np.uint8))
+
+        # for i,x in enumerate(train_concat):
+
+        #     image = x[0]
+        #     image = np.swapaxes(image, 0 ,2)
+
+        #     bgr = image[...,:3]
+        #     bg = image[...,4]
+        #     mask_obj_ref = image[...,5]
+        #     mask_obj_tar = image[...,6]
+
+        #     mask = x[2]
+        #     vector = x[1]
+
+        #     object_vectors = x[3]
+        #     object_vector_masks = x[4]
+
+        #     print("Labels", list(train_labels[i]))
+
+        #     # print("Masks", mask)
+        #     # print("Vectors", vector)
+
+        #     # print("Object vectors", object_vectors)
+        #     # print("Object vector masks", object_vector_masks)
+
+        #     cv2.imshow("bgr", (bgr*255).astype(np.uint8))
+        #     # cv2.imshow("bg", (bg*255).astype(np.uint8))
+        #     cv2.imshow("ref", (mask_obj_ref*255).astype(np.uint8))
+        #     cv2.imshow("tar", (mask_obj_tar*255).astype(np.uint8))
+            
+        #     # if (mask_obj_ref == mask_obj_tar).all():
+        #     #     cv2.imshow("diff", (mask_obj_ref != mask_obj_tar).astype(np.uint8) * 255)
+        #     cv2.waitKey()
 
 
         return result
@@ -698,9 +655,10 @@ def plot_xyz(branch_0, branch_1, labels, vectors):
 
 
 if __name__ == "__main__":
-    folder_names = ['clevr_data_128_3_obj/clevr_data_128_3_obj_' + str(i) for i in range(145, 150)]
+    folder_names = ['clevr_data_128_4_obj/clevr_data_128_4_obj_' + str(i) for i in range(200, 201)]
     data_generator = DataGenerator(folder_names=folder_names)
     result = data_generator.generate_dataset()
 
-    # data_generator = DataGenerator(folder_names=["outputs_test/left-right_no_no/0"])
+    # folder_names = ['outputs_test/left-right_no_no/' + str(i) for i in range(0,5)]
+    # data_generator = DataGenerator(folder_names=folder_names)
     # result = data_generator.generate_dataset(ignore=['train'])
