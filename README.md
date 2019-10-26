@@ -2,6 +2,11 @@
 
 Code used for the experiments described in the **[paper](https://arxiv.org/abs/1907.13627v2) and [supplementary website](https://sites.google.com/view/explain-n-repeat/)**
 
+<div align="center">
+  <img src="photorealistic.png" width="350px">
+  <img src="pr2.jpg" width="500px">
+</div>
+
  Presented at [CoRL 2019](https://www.robot-learning.org/)
 
 Code for generating the photorealistic data [can be found here](https://github.com/yordanh/clevr-dataset-gen).
