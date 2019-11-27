@@ -25,31 +25,32 @@ RUN conda install -y python=${python_version} && \
     apt-get install -y imagemagick && \
     apt-get install -y tmux && \
     pip install --upgrade pip && \
-    pip install tensorflow-gpu pydot-ng keras && \
     conda install Pillow scikit-learn notebook pandas matplotlib mkl nose pyyaml six h5py && \
-    conda install theano pygpu && \
-    pip install keras && \
     pip install opencv-python && \
     pip install imgaug && \
-    # pip install torch torchvision && \
     pip install chainer && \
     pip install cupy-cuda80 && \
+    pip install ipympl && \
     conda clean -yt
 
-ENV NB_USER yordan
+ENV NB_USER user
 ENV NB_UID 1000
 
 RUN useradd -m -s /bin/bash -N -u $NB_UID $NB_USER && \
-    echo "yordan:yordan" | chpasswd && \
-    adduser yordan sudo && \
+    echo $NB_USER:$NB_USER | chpasswd && \
+    adduser $NB_USER sudo && \
     mkdir -p $CONDA_DIR && \
-    chown yordan $CONDA_DIR -R && \
+    chown $NB_USER $CONDA_DIR -R && \
     mkdir -p /src && \
-    chown yordan /src
+    chown $NB_USER /src
 
-USER yordan
+USER user
 
 ENV PYTHONPATH='/src/:$PYTHONPATH'
+
+######################################################
+# tmux bindings and aliases follow; could be ignored #
+######################################################
 
 RUN echo 'alias notebook="jupyter notebook --ip=0.0.0.0"' >> ~/.bashrc
 RUN echo 'alias cl="clear"' >> ~/.bashrc
@@ -69,20 +70,3 @@ RUN echo 'bind -n M-Up select-pane -U' >> ~/.tmux.conf
 RUN echo 'bind -n M-Down select-pane -D' >> ~/.tmux.conf
 
 RUN echo 'set-window-option -g xterm-keys on' >> ~/.tmux.conf
-
-#RUN pip install opencv-python && \
-#    pip install imgaug && \
-#    pip install torch torchvision && \
-#    pip install chainer && \
-#    pip install cupy-cuda80
-
-
-
-# WORKDIR /src
-
-# EXPOSE 8888
-
-# CMD /bin/bash
-# CMD jupyter notebook --port=8888 --ip=0.0.0.0 --allow-root
-
-RUN pip install ipympl

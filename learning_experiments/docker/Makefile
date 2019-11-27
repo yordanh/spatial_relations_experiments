@@ -2,25 +2,14 @@ help:
 	@cat Makefile
 
 DATA?="${HOME}/spatial_relations_experiments/"
+IMAGE_NAME="spatial_relations_experiments"
 GPU?=0
 DOCKER_FILE=Dockerfile
 DOCKER=GPU=$(GPU) nvidia-docker
-BACKEND=tensorflow
 TEST=tests/
-SRC=$(shell dirname `pwd`)
 
 build:
-	docker build -t yordan -f $(DOCKER_FILE) .
+	docker build -t $(IMAGE_NAME) -f $(DOCKER_FILE) .
 
 bash: build
-	$(DOCKER) run -it --rm -v $(DATA):/data -p 8880:8880 --env KERAS_BACKEND=$(BACKEND) yordan bash
-
-ipython: build
-	$(DOCKER) run -it --rm -v $(SRC):/src -v $(DATA):/data --env KERAS_BACKEND=$(BACKEND) yordan ipython
-
-notebook: build
-	$(DOCKER) run -it --rm -v $(DATA):/data --net=host --env KERAS_BACKEND=$(BACKEND) yordan
-
-test: build
-	$(DOCKER) run -it --rm -v $(SRC):/src -v $(DATA):/data --env KERAS_BACKEND=$(BACKEND) yordan py.test $(TEST)
-
+	$(DOCKER) run -it --rm -v $(DATA):/data -p 8880:8888 $(IMAGE_NAME) bash
