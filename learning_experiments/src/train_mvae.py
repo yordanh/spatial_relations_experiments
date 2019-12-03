@@ -36,7 +36,6 @@ from chainer import serializers
 # Sibling Modules
 import net_128x128_mvae as net
 import data_generator_mvae as data_generator
-from utils import *
 
 
 def main():
