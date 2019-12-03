@@ -71,9 +71,6 @@ def main():
     if not osp.isdir(osp.join(args.output_dir)):
         os.makedirs(args.output_dir)
 
-    if not osp.isdir(osp.join(args.output_dir, 'models')):
-        os.makedirs(osp.join(args.output_dir, 'models'))
-
     print('\n###############################################')
     print('# GPU: \t\t\t{}'.format(args.gpu))
     print('# dim z: \t\t{}'.format(args.dimz))
@@ -93,15 +90,8 @@ def main():
              'valid_label_obj_acc': [], 'valid_label_obj_loss': [],
              'valid_label_rel_acc': [], 'valid_label_rel_loss': []}
 
-    models_folder = os.path.join(args.output_dir, "models")
-
-    n_obj = 4
-    folder = 'clevr_data_128_'+str(n_obj)+'_obj'
-    folder_names = [osp.join(folder, folder+'_'+str(i)) for i in range(150, 170)]
-
-    # n_obj = 3
-    # folder = 'clevr_data_128_'+str(n_obj)+'_obj'
-    # folder_names += [osp.join(folder, folder+'_'+str(i)) for i in range(60, 70)]
+    folder = 'photoreal_data'
+    folder_names = [osp.join(folder, 'clevr_data_128_4_obj_'+str(i)) for i in range(20)]
     
     generator = data_generator.DataGenerator(augment_counter=args.augment_counter, \
                                              folder_names=folder_names,\
@@ -168,10 +158,8 @@ def main():
 
     # Setup an optimizer
     optimizer = chainer.optimizers.Adam()
-    # optimizer = chainer.optimizers.RMSprop()
     optimizer.setup(model)
     optimizer.add_hook(chainer.optimizer_hooks.WeightDecay(0.0005))
-    # optimizer.add_hook(chainer.optimizer_hooks.GradientClipping(0.00001))
 
     updater = training.StandardUpdater(train_iter, optimizer, 
                                        loss_func=model.lf,
@@ -208,13 +196,11 @@ def main():
     trainer.extend(extensions.PlotReport(['main/rel_l', \
                                           'val/main/rel_l'], \
                                            x_key='epoch', file_name='relation_loss.png', marker=None))
-    # trainer.extend(extensions.dump_graph('main/loss'))
     trainer.extend(extensions.ProgressBar(update_interval=10))
     trainer.extend(extensions.FailOnNonNumber())
     trainer.extend(extensions.snapshot(filename='snapshot_epoch_{.updater.epoch}.trainer'), trigger=(args.epochs, 'epoch'))
     trainer.extend(extensions.snapshot_object(model, filename='snapshot_epoch_{.updater.epoch}.model'), trigger=(10, 'epoch'))
     trainer.extend(extensions.snapshot_object(model, 'final.model'), trigger=(args.epochs, 'epoch'))
-    # trainer.extend(model.check_loss_coefficients(), trigger=(1, 'epoch'))
     trainer.extend(extensions.ExponentialShift('alpha', 0.5, init=1e-3, target=1e-8), trigger=(args.epochs/2, 'epoch')) # For Adam
 
     trainer.run()
