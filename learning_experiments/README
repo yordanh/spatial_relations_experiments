@@ -1,0 +1,19 @@
+Disentangled Relational Representations for Explaining and Learning from Demonstration
+========================================================================
+
+This folder contains docker files + python source files for the three different experiments 
+performed in the paper:
+	
+Files related to the model trained on the photorealistic data:
+* data_generator_mvae file - loads and prepares the data for the learning process
+* train_mvae file - performs the training process 
+* net_128x128_mvae file - contains the models being trained
+* run_experiments_mvae - used to run multiple training sessions in sequence, each parametrised
+by its own parameters
+
+Training is done by running `python src/run_experiments_mvae.py`. Results from each training session
+are stored under the result directory specified in the scrip:
+* trained model
+* training log
+* learning curves
+* arguments list
