@@ -26,7 +26,7 @@ batchsizes = ['32']
 objects_n_arr = ['2']
 n_experiments = 1
 
-BASE_DIR = "multi_result_clevr_exp"
+BASE_DIR = "photoreal_results"
 for folder in os.listdir(BASE_DIR):
 	shutil.rmtree(osp.join(BASE_DIR, folder))
 
